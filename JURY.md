@@ -77,3 +77,25 @@ python -m pytest tests/ -q          # анти-утечка (офлайн = он
 python tests/e2e_backend.py         # сквозной прогон: NDTP -> backend -> ML
 python -m ml.bench                  # latency
 ```
+
+## 6. Соответствие требованиям ТЗ
+
+| Требование | Где реализовано | Подтверждение |
+|---|---|---|
+| Приём и парсинг NDTP (эмулятор и исторический датасет) | `ndtp/` — кодек NPL/NPH/CRC-16/Modbus, asyncio TCP-сервер, реплеер `traffic.csv` в NDTP | `tests/test_ndtp.py`; CI docker-smoke; сквозной прогон 16 772 пакетов |
+| Сопоставление телеметрии с расписанием | `ml/telemetry.py` — детектор прибытий на остановки (map matching) | медиана ошибки ~4 с к фактам АСДУ |
+| Очистка, производные признаки (отклонение, скорость на сегменте, простой) | `ml/features.py`, `ml/compact.py` | `tests/test_no_leak.py`: признаки только по данным ≤ T |
+| Горизонт строго 10–15 мин | цель — первая остановка с планом в (T+10, T+15] | совпадение с разметкой организаторов 100% |
+| Вероятность задержки | `p_late`, калибровка по out-of-fold | Brier 0.117 против 0.171; кривая калибровки |
+| Абсолютная ошибка прогноза | `expected_abs_error`; живая MAE на дашборде | ожидаемая 68.4 с против фактической 68.1 с |
+| Паттерны перед сбоем | `ml/explain.py` (паттерны), `ml/segments.py` (проблемные участки), точные SHAP-вклады | deletion test 38 с против 10 с |
+| Карта сети с положением ТС, цвет риска на маршрутах | `dashboard/` | скриншоты `docs/img/` |
+| Карточка инцидента: ТС, опоздание, причина, участок | `/api/v1/alerts/{id}`, дашборд | + вероятность, интервал, рекомендации, what-if |
+| Разделение Backend и ML | `backend/` и `services/ml_service/` — отдельные сервисы, HTTP | отдельные контейнеры |
+| Python 3.12+, PyTorch, CatBoost, Docker | образы на python:3.12; GRU (PyTorch, GPU) и CatBoost в ансамбле | CI: сборка и запуск всех контейнеров |
+| Документация PyDoc/Sphinx и OpenAPI | `docs/html`, `docs/openapi`, `docs/api.html` | Swagger в работающих сервисах |
+| Производительность | 1.1 мс на точку, 500 ТС — 1.13 с на ядро | `reports/latency.json`, `reports/scale_bench.json` |
+| Надёжность: обрыв связи, деградация | circuit breaker, буфер, «последнее известное состояние», переподключение NDTP | `tests/test_backend.py`; `reports/degradation.json` |
+| Масштабируемость: дообучение и масштабирование | `ml/retrain.py`, `ml/registry.py`, шардирование `ML_SHARD` | `SCALING.md` |
+| GPU | обучение PyTorch-GRU на CUDA (RTX 4060) | `ml/nn.py` |
+| Доп.: map matching, what-if, ONNX, ансамбли | см. `FORM.md` | — |
