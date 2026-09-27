@@ -2,16 +2,8 @@ name: CI
 on: [push, pull_request, workflow_dispatch]
 
 jobs:
-  docker-build:
-    name: Сборка Docker-образов (ml-service, backend, dashboard, ingest)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: docker compose build
-        run: DATA_DIR=./data docker compose build
-
   tests-docs:
-    name: Тесты без датасета + Sphinx
+    name: Тесты без датасета + импорт модулей + Sphinx
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -21,6 +13,37 @@ jobs:
       - name: NDTP codec tests
         run: python -m pytest tests/test_ndtp.py -q
       - name: import all modules
-        run: python -c "import ml.compact, ml.predictor, ml.online, ml.retrain, backend.main, services.ml_service.app, ndtp.server"
+        run: python -c "import ml.compact, ml.predictor, ml.online, ml.retrain, ml.segments, backend.main, services.ml_service.app, ndtp.server"
       - name: Sphinx
         run: python -m sphinx -q -b html docs /tmp/html
+
+  docker-smoke:
+    name: Вся система в Docker (синтетический датасет)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Синтетический датасет в формате раздачи
+        run: python3 tests/make_sample_data.py sample_data
+      - name: docker compose up --build
+        run: DATA_DIR=./sample_data docker compose up -d --build
+      - name: Дождаться готовности (расписание загружено в ML)
+        run: |
+          for i in $(seq 1 120); do
+            curl -sf http://localhost:8000/api/v1/health | grep -q '"schedule_loaded":true' && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Поток NDTP (реплей синтетического дня)
+        run: DATA_DIR=./sample_data docker compose --profile replay run --rm replay python -m ndtp.replay --split test --host ingest --port 9201 --speed 600
+      - name: Проверки API, прогнозов и дашборда
+        run: |
+          sleep 10
+          curl -s http://localhost:8000/api/v1/health | tee health.json; echo
+          python3 -c "import json; h=json.load(open('health.json')); assert h['received'] > 0 and h['cycles'] > 0, h"
+          curl -sf http://localhost:8080/ | grep -q "Прогноз отклонений"
+          curl -sf http://localhost:8080/api/v1/vehicles | python3 -c "import sys, json; v = json.load(sys.stdin); assert len(v) >= 2, v; print(v[0])"
+          curl -sf http://localhost:8001/v1/model | python3 -c "import sys, json; assert json.load(sys.stdin)['kind'] == 'compact'"
+          curl -sf http://localhost:8000/api/v1/metrics; echo
+      - name: Логи при ошибке
+        if: failure()
+        run: docker compose logs --tail=200
