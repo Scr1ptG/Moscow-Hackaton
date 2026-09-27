@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+
+<html lang="ru" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ml.schedule &#8212; документация Transit Delay Predictor </title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=372fde1a"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/translations.js?v=cd1d70c9"></script>
+    <link rel="index" title="Алфавитный указатель" href="../../genindex.html" />
+    <link rel="search" title="Поиск" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Исходный код ml.schedule</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Структура планового расписания ТС: порядок остановок, рейсы, отстой.</span>
+
+<span class="sd">Ключевое наблюдение EDA: после отстоя на конечной (разрыв плана &gt;= 5 мин,</span>
+<span class="sd">остановка та же) задержка «обнуляется» — корреляция задержки до и после</span>
+<span class="sd">отстоя ~0.03. Поэтому модели нужны признаки о том, есть ли отстой между</span>
+<span class="sd">текущим положением ТС и целевой остановкой.</span>
+<span class="sd">"""</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.geo</span><span class="w"> </span><span class="kn">import</span> <span class="n">haversine</span><span class="p">,</span> <span class="n">to_xy</span>
+
+<span class="c1">#: Разрыв плана, начиная с которого считаем, что начинается новый рейс, с.</span>
+<span class="n">TRIP_GAP_S</span> <span class="o">=</span> <span class="mf">300.0</span>
+<span class="c1">#: Остановка «та же», если ближе этого расстояния, м.</span>
+<span class="n">SAME_STOP_M</span> <span class="o">=</span> <span class="mf">150.0</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_order_ties</span><span class="p">(</span><span class="n">g</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Сортирует остановки по плану; при равном плане — жадно по близости.</span>
+
+<span class="sd">    План дан с точностью до минуты, и в одну минуту часто попадают 2 остановки.</span>
+<span class="sd">    Физически верный порядок — тот, что минимизирует путь, поэтому внутри</span>
+<span class="sd">    группы с одинаковым временем берём ближайшую к предыдущей остановке.</span>
+<span class="sd">    """</span>
+    <span class="n">g</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">sort_values</span><span class="p">([</span><span class="s2">"plan"</span><span class="p">,</span> <span class="s2">"stop_id"</span><span class="p">],</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"stable"</span><span class="p">)</span>
+    <span class="n">plans</span> <span class="o">=</span> <span class="n">g</span><span class="p">[</span><span class="s2">"plan"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">unique</span><span class="p">(</span><span class="n">plans</span><span class="p">))</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">plans</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">g</span>
+    <span class="n">lon</span><span class="p">,</span> <span class="n">lat</span> <span class="o">=</span> <span class="n">g</span><span class="p">[</span><span class="s2">"lon"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span> <span class="n">g</span><span class="p">[</span><span class="s2">"lat"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+    <span class="n">order</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">)</span>
+    <span class="k">while</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">n</span><span class="p">:</span>
+        <span class="n">j</span> <span class="o">=</span> <span class="n">i</span>
+        <span class="k">while</span> <span class="n">j</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">&lt;</span> <span class="n">n</span> <span class="ow">and</span> <span class="n">plans</span><span class="p">[</span><span class="n">j</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="n">plans</span><span class="p">[</span><span class="n">i</span><span class="p">]:</span>
+            <span class="n">j</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="n">idx</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="nb">range</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+        <span class="k">while</span> <span class="n">idx</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">order</span><span class="p">:</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="n">order</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="n">d</span> <span class="o">=</span> <span class="n">haversine</span><span class="p">(</span><span class="n">lon</span><span class="p">[</span><span class="n">p</span><span class="p">],</span> <span class="n">lat</span><span class="p">[</span><span class="n">p</span><span class="p">],</span> <span class="n">lon</span><span class="p">[</span><span class="n">idx</span><span class="p">],</span> <span class="n">lat</span><span class="p">[</span><span class="n">idx</span><span class="p">])</span>
+                <span class="n">k</span> <span class="o">=</span> <span class="n">idx</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nanargmin</span><span class="p">(</span><span class="n">d</span><span class="p">))]</span> <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">d</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">()</span> <span class="k">else</span> <span class="n">idx</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">k</span> <span class="o">=</span> <span class="n">idx</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">order</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+            <span class="n">idx</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="n">k</span><span class="p">)</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">j</span> <span class="o">+</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">g</span><span class="o">.</span><span class="n">iloc</span><span class="p">[</span><span class="n">order</span><span class="p">]</span>
+
+
+<div class="viewcode-block" id="prepare_schedule">
+<a class="viewcode-back" href="../../ml.html#ml.schedule.prepare_schedule">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">prepare_schedule</span><span class="p">(</span><span class="n">plan</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Готовит план по каждому ТС.</span>
+
+<span class="sd">    Возвращает словарь ``tr_id -&gt; DataFrame`` с колонками:</span>
+<span class="sd">    ``stop_id, plan, lon, lat, x, y, gap_prev, dist_prev, cum_dist, trip_no,</span>
+<span class="sd">    pos_in_trip, trip_len, is_trip_start, is_trip_end, loc_key``.</span>
+<span class="sd">    """</span>
+    <span class="n">out</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">tr</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">plan</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"tr_id"</span><span class="p">,</span> <span class="n">sort</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="n">g</span> <span class="o">=</span> <span class="n">_order_ties</span><span class="p">(</span><span class="n">g</span><span class="p">)</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">to_xy</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="s2">"lon"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span> <span class="n">g</span><span class="p">[</span><span class="s2">"lat"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">())</span>
+        <span class="n">g</span><span class="p">[</span><span class="s2">"x"</span><span class="p">],</span> <span class="n">g</span><span class="p">[</span><span class="s2">"y"</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span>
+        <span class="n">gap</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="s2">"plan"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span> <span class="n">prepend</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+        <span class="n">dist</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">r_</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">,</span> <span class="n">haversine</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="s2">"lon"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">g</span><span class="p">[</span><span class="s2">"lat"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()[:</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span> <span class="n">g</span><span class="p">[</span><span class="s2">"lon"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()[</span><span class="mi">1</span><span class="p">:],</span> <span class="n">g</span><span class="p">[</span><span class="s2">"lat"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()[</span><span class="mi">1</span><span class="p">:])]</span>
+        <span class="n">g</span><span class="p">[</span><span class="s2">"gap_prev"</span><span class="p">]</span> <span class="o">=</span> <span class="n">gap</span>
+        <span class="n">g</span><span class="p">[</span><span class="s2">"dist_prev"</span><span class="p">]</span> <span class="o">=</span> <span class="n">dist</span>
+        <span class="n">g</span><span class="p">[</span><span class="s2">"cum_dist"</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan_to_num</span><span class="p">(</span><span class="n">dist</span><span class="p">)</span><span class="o">.</span><span class="n">cumsum</span><span class="p">()</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">gap</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">gap</span> <span class="o">&gt;=</span> <span class="n">TRIP_GAP_S</span><span class="p">)</span> <span class="o">|</span> <span class="p">((</span><span class="n">gap</span> <span class="o">&gt;=</span> <span class="mi">150</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nan_to_num</span><span class="p">(</span><span class="n">dist</span><span class="p">,</span> <span class="n">nan</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">SAME_STOP_M</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">gap</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">))</span>
+        <span class="n">g</span><span class="p">[</span><span class="s2">"is_trip_start"</span><span class="p">]</span> <span class="o">=</span> <span class="n">start</span>
+        <span class="n">g</span><span class="p">[</span><span class="s2">"trip_no"</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">start</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="n">g</span><span class="p">[</span><span class="s2">"pos_in_trip"</span><span class="p">]</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"trip_no"</span><span class="p">)</span><span class="o">.</span><span class="n">cumcount</span><span class="p">()</span>
+        <span class="n">g</span><span class="p">[</span><span class="s2">"trip_len"</span><span class="p">]</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"trip_no"</span><span class="p">)[</span><span class="s2">"stop_id"</span><span class="p">]</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="s2">"size"</span><span class="p">)</span>
+        <span class="n">g</span><span class="p">[</span><span class="s2">"is_trip_end"</span><span class="p">]</span> <span class="o">=</span> <span class="n">g</span><span class="p">[</span><span class="s2">"pos_in_trip"</span><span class="p">]</span> <span class="o">==</span> <span class="n">g</span><span class="p">[</span><span class="s2">"trip_len"</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span>
+        <span class="c1"># ключ места остановки (для поиска той же остановки в прошлых рейсах)</span>
+        <span class="n">g</span><span class="p">[</span><span class="s2">"loc_key"</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="s2">"lon"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span> <span class="mi">4</span><span class="p">)</span> <span class="o">*</span> <span class="mf">1e4</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"int64"</span><span class="p">)</span> <span class="o">*</span> <span class="mi">10_000_000</span> <span class="o">+</span> <span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="s2">"lat"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span> <span class="mi">4</span><span class="p">)</span> <span class="o">*</span> <span class="mf">1e4</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"int64"</span><span class="p">)</span>
+        <span class="n">out</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">tr</span><span class="p">)]</span> <span class="o">=</span> <span class="n">g</span>
+    <span class="k">return</span> <span class="n">out</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Transit Delay Predictor</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Искать" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Навигация</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../ml.html">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../ndtp.html">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../service.html">ML-сервис (FastAPI)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../backend.html">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Код модуля</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

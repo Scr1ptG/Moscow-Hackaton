@@ -1,0 +1,529 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Transit Delay Predictor — ML service",
+    "description": "Прогноз отклонения от графика на горизонте 10–15 мин по потоковой телеметрии NDTP.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "description": "Живость сервиса и базовая статистика (для оркестратора).",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/model": {
+      "get": {
+        "summary": "Model Info",
+        "description": "Карточка модели: признаки (с описанием и монотонностью), группы причин, метрики.",
+        "operationId": "model_info_v1_model_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/reload": {
+      "post": {
+        "summary": "Reload Model",
+        "description": "Горячая перезагрузка модели после продвижения новой версии (``python -m ml.retrain``).",
+        "operationId": "reload_model_v1_admin_reload_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/schedule": {
+      "post": {
+        "summary": "Load Schedule",
+        "description": "Загружает плановое расписание (только план, без факта).",
+        "operationId": "load_schedule_v1_schedule_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/telemetry": {
+      "post": {
+        "summary": "Ingest",
+        "description": "Принимает батч навигационных записей.",
+        "operationId": "ingest_v1_telemetry_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "$ref": "#/components/schemas/NavRecordIn"
+                },
+                "type": "array",
+                "title": "Records"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/predictions": {
+      "get": {
+        "summary": "Predictions",
+        "description": "Прогнозы на горизонте 10–15 мин для всех ТС с телеметрией на момент ``now``.",
+        "operationId": "predictions_v1_predictions_get",
+        "parameters": [
+          {
+            "name": "now",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Now"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/predict": {
+      "post": {
+        "summary": "Predict",
+        "description": "Прогноз задержки для одной прогнозной точки.",
+        "operationId": "predict_v1_predict_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PointIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/whatif": {
+      "post": {
+        "summary": "Whatif",
+        "description": "What-if: прогноз до и после переопределения признаков (сценарий диспетчера).",
+        "operationId": "whatif_v1_whatif_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WhatIfIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "NavRecordIn": {
+        "properties": {
+          "unit_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Id",
+            "description": "ID бортового терминала (peerAddress)"
+          },
+          "tr_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tr Id",
+            "description": "ID ТС, если известен"
+          },
+          "t": {
+            "type": "number",
+            "title": "T",
+            "description": "Unix-время фиксации, с"
+          },
+          "valid": {
+            "type": "boolean",
+            "title": "Valid",
+            "default": true
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "t"
+        ],
+        "title": "NavRecordIn",
+        "description": "Навигационная запись (ячейка G6CellNav00 после парсинга NDTP)."
+      },
+      "PointIn": {
+        "properties": {
+          "tr_id": {
+            "type": "integer",
+            "title": "Tr Id"
+          },
+          "T": {
+            "type": "number",
+            "title": "T",
+            "description": "Момент прогноза, Unix-с"
+          },
+          "target_stop_id": {
+            "type": "integer",
+            "title": "Target Stop Id"
+          },
+          "target_plan": {
+            "type": "number",
+            "title": "Target Plan",
+            "description": "Плановое время прибытия на целевую остановку, Unix-с"
+          },
+          "cur_dev_s": {
+            "type": "number",
+            "title": "Cur Dev S",
+            "description": "Отклонение на последней пройденной остановке, с",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "required": [
+          "tr_id",
+          "T",
+          "target_stop_id",
+          "target_plan"
+        ],
+        "title": "PointIn"
+      },
+      "ScheduleIn": {
+        "properties": {
+          "csv_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Csv Path",
+            "description": "Путь к schedule.csv / schedule_plan.csv"
+          },
+          "split": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split",
+            "description": "Или имя сплита датасета: train/test/validate"
+          },
+          "unit_to_tr": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Unit To Tr",
+            "description": "Соответствие unit_id -> tr_id"
+          }
+        },
+        "type": "object",
+        "title": "ScheduleIn"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WhatIfIn": {
+        "properties": {
+          "tr_id": {
+            "type": "integer",
+            "title": "Tr Id"
+          },
+          "T": {
+            "type": "number",
+            "title": "T",
+            "description": "Момент прогноза, Unix-с"
+          },
+          "target_stop_id": {
+            "type": "integer",
+            "title": "Target Stop Id"
+          },
+          "target_plan": {
+            "type": "number",
+            "title": "Target Plan",
+            "description": "Плановое время прибытия на целевую остановку, Unix-с"
+          },
+          "cur_dev_s": {
+            "type": "number",
+            "title": "Cur Dev S",
+            "description": "Отклонение на последней пройденной остановке, с",
+            "default": 0.0
+          },
+          "overrides": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Overrides",
+            "description": "Переопределения признаков, напр. {'cur_dev_s': 0}"
+          },
+          "shifts": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Shifts",
+            "description": "Сдвиги признаков, напр. {'layover_slack_s': 180} (+3 мин отстоя)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tr_id",
+          "T",
+          "target_stop_id",
+          "target_plan"
+        ],
+        "title": "WhatIfIn"
+      }
+    }
+  }
+}

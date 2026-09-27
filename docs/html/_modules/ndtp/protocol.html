@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+
+<html lang="ru" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ndtp.protocol &#8212; документация Transit Delay Predictor </title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=372fde1a"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/translations.js?v=cd1d70c9"></script>
+    <link rel="index" title="Алфавитный указатель" href="../../genindex.html" />
+    <link rel="search" title="Поиск" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Исходный код ndtp.protocol</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Кодек протокола NDTP по спецификации эмулятора (docs/Emulator-and-Telematic-Packets-Specification.md).</span>
+
+<span class="sd">Кадр: ``[NPL 15 байт][NPH 10 байт][тело]``, всё little-endian, packed.</span>
+<span class="sd">CRC-16/Modbus считается по NPH + телу и кладётся в NPL со свапнутыми байтами.</span>
+
+<span class="sd">Модуль умеет:</span>
+
+<span class="sd">* разбирать поток байт из TCP в кадры (:class:`FrameDecoder`), проверяя сигнатуру и CRC;</span>
+<span class="sd">* разбирать тело realtime-пакета в ячейки и декодировать навигационную ячейку</span>
+<span class="sd">  ``G6CellNav00`` в :class:`NavRecord` (то же, что строка ``traffic.csv``);</span>
+<span class="sd">* собирать кадры (handshake и realtime) — для реплеера исторических данных и тестов.</span>
+<span class="sd">"""</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">struct</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+
+<span class="n">NPL_SIGNATURE</span> <span class="o">=</span> <span class="mh">0x7E7E</span>
+<span class="n">NPL</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">Struct</span><span class="p">(</span><span class="s2">"&lt;HHHHBIH"</span><span class="p">)</span>  <span class="c1"># signature, dataSize, flags, crc, type, peerAddress, requestId</span>
+<span class="n">NPH</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">Struct</span><span class="p">(</span><span class="s2">"&lt;HHHI"</span><span class="p">)</span>  <span class="c1"># serviceId, type, flags, requestId</span>
+<span class="n">HANDSHAKE</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">Struct</span><span class="p">(</span><span class="s2">"&lt;HHHIII"</span><span class="p">)</span>  <span class="c1"># protoHigh, protoLow, flags, peerAddress, maxPacketSize, reserved</span>
+<span class="n">NAV00</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">Struct</span><span class="p">(</span><span class="s2">"&lt;IIIBBHHHHHBB"</span><span class="p">)</span>  <span class="c1"># 26 байт</span>
+
+<span class="n">NPL_TYPE_NPH</span> <span class="o">=</span> <span class="mh">0x02</span>
+<span class="n">SERVICE_GENERIC_CONTROLS</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">SERVICE_NAVDATA</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">NPH_SGC_CONN_REQUEST</span> <span class="o">=</span> <span class="mi">100</span>
+<span class="n">NPH_SND_REALTIME</span> <span class="o">=</span> <span class="mi">101</span>
+
+<span class="c1">#: Размер полезной нагрузки ячеек по типу (для пропуска неинтересных ячеек).</span>
+<span class="n">CELL_SIZES</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="mi">26</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="mi">26</span><span class="p">,</span> <span class="mi">8</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">10</span><span class="p">:</span> <span class="mi">37</span><span class="p">,</span> <span class="mi">15</span><span class="p">:</span> <span class="mi">50</span><span class="p">,</span> <span class="mi">16</span><span class="p">:</span> <span class="mi">8</span><span class="p">}</span>
+
+
+<div class="viewcode-block" id="crc16_modbus">
+<a class="viewcode-back" href="../../ndtp.html#ndtp.protocol.crc16_modbus">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">crc16_modbus</span><span class="p">(</span><span class="n">data</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""CRC-16/Modbus: poly 0xA001 (отражённый 0x8005), init 0xFFFF."""</span>
+    <span class="n">crc</span> <span class="o">=</span> <span class="mh">0xFFFF</span>
+    <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+        <span class="n">crc</span> <span class="o">^=</span> <span class="n">b</span>
+        <span class="k">for</span> <span class="n">_</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">8</span><span class="p">):</span>
+            <span class="n">crc</span> <span class="o">=</span> <span class="p">(</span><span class="n">crc</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span><span class="p">)</span> <span class="o">^</span> <span class="mh">0xA001</span> <span class="k">if</span> <span class="n">crc</span> <span class="o">&amp;</span> <span class="mi">1</span> <span class="k">else</span> <span class="n">crc</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">crc</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_swap16</span><span class="p">(</span><span class="n">x</span><span class="p">:</span> <span class="nb">int</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+    <span class="k">return</span> <span class="p">((</span><span class="n">x</span> <span class="o">&amp;</span> <span class="mh">0xFF</span><span class="p">)</span> <span class="o">&lt;&lt;</span> <span class="mi">8</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">x</span> <span class="o">&gt;&gt;</span> <span class="mi">8</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="Frame">
+<a class="viewcode-back" href="../../ndtp.html#ndtp.protocol.Frame">[документация]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Frame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Разобранный кадр NDTP."""</span>
+
+    <span class="n">peer_address</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">service_id</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">nph_type</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">request_id</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">body</span><span class="p">:</span> <span class="nb">bytes</span></div>
+
+
+
+<div class="viewcode-block" id="NavRecord">
+<a class="viewcode-back" href="../../ndtp.html#ndtp.protocol.NavRecord">[документация]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">NavRecord</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Навигационная запись (ячейка ``G6CellNav00``) — аналог строки ``traffic.csv``."""</span>
+
+    <span class="n">unit_id</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">timestamp</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">lon</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">lat</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">valid</span><span class="p">:</span> <span class="nb">bool</span>
+    <span class="n">speed</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">speed_max</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">course</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">altitude</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">nsat</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">pdop</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">flags</span><span class="p">:</span> <span class="nb">dict</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="FrameDecoder">
+<a class="viewcode-back" href="../../ndtp.html#ndtp.protocol.FrameDecoder">[документация]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">FrameDecoder</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Инкрементальный разборщик TCP-потока в кадры NDTP.</span>
+
+<span class="sd">    Устойчив к мусору и разрывам: ищет сигнатуру ``0x7E7E``, при неверном CRC</span>
+<span class="sd">    сдвигается на байт и продолжает поиск.</span>
+<span class="sd">    """</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">check_crc</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">buf</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">check_crc</span> <span class="o">=</span> <span class="n">check_crc</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">crc_errors</span> <span class="o">=</span> <span class="mi">0</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">feed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Frame</span><span class="p">]:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="n">frames</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="n">Frame</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">while</span> <span class="kc">True</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="sa">b</span><span class="s2">"</span><span class="se">\x7e\x7e</span><span class="s2">"</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="k">return</span> <span class="n">frames</span>
+            <span class="k">if</span> <span class="n">i</span><span class="p">:</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">[:</span><span class="n">i</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">NPL</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">frames</span>
+            <span class="n">sig</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">_flags</span><span class="p">,</span> <span class="n">crc</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">peer</span><span class="p">,</span> <span class="n">_req</span> <span class="o">=</span> <span class="n">NPL</span><span class="o">.</span><span class="n">unpack_from</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">NPL</span><span class="o">.</span><span class="n">size</span> <span class="o">+</span> <span class="n">size</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">frames</span>
+            <span class="n">payload</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">[</span><span class="n">NPL</span><span class="o">.</span><span class="n">size</span> <span class="p">:</span> <span class="n">NPL</span><span class="o">.</span><span class="n">size</span> <span class="o">+</span> <span class="n">size</span><span class="p">])</span>
+            <span class="c1"># по спецификации CRC лежит в NPL со свапнутыми байтами; прямой порядок тоже</span>
+            <span class="c1"># принимаем (устойчивость к реализациям терминалов), остальное — мусор</span>
+            <span class="n">calc</span> <span class="o">=</span> <span class="n">crc16_modbus</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">check_crc</span> <span class="k">else</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">check_crc</span> <span class="ow">and</span> <span class="n">calc</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="n">_swap16</span><span class="p">(</span><span class="n">crc</span><span class="p">),</span> <span class="n">crc</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">crc_errors</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">[:</span><span class="mi">1</span><span class="p">]</span>
+                <span class="k">continue</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">[:</span> <span class="n">NPL</span><span class="o">.</span><span class="n">size</span> <span class="o">+</span> <span class="n">size</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">typ</span> <span class="o">!=</span> <span class="n">NPL_TYPE_NPH</span> <span class="ow">or</span> <span class="n">size</span> <span class="o">&lt;</span> <span class="n">NPH</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">service</span><span class="p">,</span> <span class="n">nph_type</span><span class="p">,</span> <span class="n">_nflags</span><span class="p">,</span> <span class="n">req</span> <span class="o">=</span> <span class="n">NPH</span><span class="o">.</span><span class="n">unpack_from</span><span class="p">(</span><span class="n">payload</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">frames</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">Frame</span><span class="p">(</span><span class="n">peer</span><span class="p">,</span> <span class="n">service</span><span class="p">,</span> <span class="n">nph_type</span><span class="p">,</span> <span class="n">req</span><span class="p">,</span> <span class="n">payload</span><span class="p">[</span><span class="n">NPH</span><span class="o">.</span><span class="n">size</span> <span class="p">:]))</span></div>
+
+
+
+<div class="viewcode-block" id="parse_cells">
+<a class="viewcode-back" href="../../ndtp.html#ndtp.protocol.parse_cells">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_cells</span><span class="p">(</span><span class="n">body</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">,</span> <span class="nb">bytes</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">"""Режет тело realtime-пакета на ячейки ``(type, number, payload)``.</span>
+
+<span class="sd">    Ячейки неизвестного размера обрывают разбор (``G6CellNav00`` всегда первая).</span>
+<span class="sd">    """</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">&lt;=</span> <span class="nb">len</span><span class="p">(</span><span class="n">body</span><span class="p">):</span>
+        <span class="n">typ</span><span class="p">,</span> <span class="n">num</span> <span class="o">=</span> <span class="n">body</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">body</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="n">size</span> <span class="o">=</span> <span class="n">CELL_SIZES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">typ</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">size</span> <span class="ow">is</span> <span class="kc">None</span> <span class="ow">or</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">+</span> <span class="n">size</span> <span class="o">&gt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">body</span><span class="p">):</span>
+            <span class="k">break</span>
+        <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">typ</span><span class="p">,</span> <span class="n">num</span><span class="p">,</span> <span class="n">body</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">2</span> <span class="p">:</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">+</span> <span class="n">size</span><span class="p">]))</span>
+        <span class="n">i</span> <span class="o">+=</span> <span class="mi">2</span> <span class="o">+</span> <span class="n">size</span>
+    <span class="k">return</span> <span class="n">out</span></div>
+
+
+
+<div class="viewcode-block" id="decode_nav00">
+<a class="viewcode-back" href="../../ndtp.html#ndtp.protocol.decode_nav00">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">decode_nav00</span><span class="p">(</span><span class="n">unit_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">payload</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">NavRecord</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Декодирует ``G6CellNav00`` (знак координат — из битов N/S и E/W)."""</span>
+    <span class="n">ts</span><span class="p">,</span> <span class="n">lon</span><span class="p">,</span> <span class="n">lat</span><span class="p">,</span> <span class="n">bits</span><span class="p">,</span> <span class="n">_bat</span><span class="p">,</span> <span class="n">spd</span><span class="p">,</span> <span class="n">spd_max</span><span class="p">,</span> <span class="n">course</span><span class="p">,</span> <span class="n">_track</span><span class="p">,</span> <span class="n">alt</span><span class="p">,</span> <span class="n">nsat</span><span class="p">,</span> <span class="n">pdop</span> <span class="o">=</span> <span class="n">NAV00</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+    <span class="n">north</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">bits</span> <span class="o">&gt;&gt;</span> <span class="mi">5</span> <span class="o">&amp;</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">east</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">bits</span> <span class="o">&gt;&gt;</span> <span class="mi">6</span> <span class="o">&amp;</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">NavRecord</span><span class="p">(</span>
+        <span class="n">unit_id</span><span class="o">=</span><span class="n">unit_id</span><span class="p">,</span>
+        <span class="n">timestamp</span><span class="o">=</span><span class="n">ts</span><span class="p">,</span>
+        <span class="n">lon</span><span class="o">=</span><span class="p">(</span><span class="n">lon</span> <span class="o">/</span> <span class="mf">1e7</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="k">if</span> <span class="n">east</span> <span class="k">else</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+        <span class="n">lat</span><span class="o">=</span><span class="p">(</span><span class="n">lat</span> <span class="o">/</span> <span class="mf">1e7</span><span class="p">)</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="k">if</span> <span class="n">north</span> <span class="k">else</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+        <span class="n">valid</span><span class="o">=</span><span class="nb">bool</span><span class="p">(</span><span class="n">bits</span> <span class="o">&gt;&gt;</span> <span class="mi">7</span> <span class="o">&amp;</span> <span class="mi">1</span><span class="p">),</span>
+        <span class="n">speed</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">spd</span><span class="p">),</span>
+        <span class="n">speed_max</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">spd_max</span><span class="p">),</span>
+        <span class="n">course</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">course</span><span class="p">),</span>
+        <span class="n">altitude</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">alt</span><span class="p">),</span>
+        <span class="n">nsat</span><span class="o">=</span><span class="n">nsat</span><span class="p">,</span>
+        <span class="n">pdop</span><span class="o">=</span><span class="n">pdop</span><span class="p">,</span>
+        <span class="n">flags</span><span class="o">=</span><span class="p">{</span><span class="s2">"alarm"</span><span class="p">:</span> <span class="nb">bool</span><span class="p">(</span><span class="n">bits</span> <span class="o">&gt;&gt;</span> <span class="mi">1</span> <span class="o">&amp;</span> <span class="mi">1</span><span class="p">),</span> <span class="s2">"sos"</span><span class="p">:</span> <span class="nb">bool</span><span class="p">(</span><span class="n">bits</span> <span class="o">&gt;&gt;</span> <span class="mi">2</span> <span class="o">&amp;</span> <span class="mi">1</span><span class="p">),</span> <span class="s2">"battery"</span><span class="p">:</span> <span class="nb">bool</span><span class="p">(</span><span class="n">bits</span> <span class="o">&gt;&gt;</span> <span class="mi">4</span> <span class="o">&amp;</span> <span class="mi">1</span><span class="p">)},</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="nav_records">
+<a class="viewcode-back" href="../../ndtp.html#ndtp.protocol.nav_records">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">nav_records</span><span class="p">(</span><span class="n">frame</span><span class="p">:</span> <span class="n">Frame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">NavRecord</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Все навигационные записи из realtime-кадра."""</span>
+    <span class="k">if</span> <span class="n">frame</span><span class="o">.</span><span class="n">service_id</span> <span class="o">!=</span> <span class="n">SERVICE_NAVDATA</span> <span class="ow">or</span> <span class="n">frame</span><span class="o">.</span><span class="n">nph_type</span> <span class="o">!=</span> <span class="n">NPH_SND_REALTIME</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+    <span class="k">return</span> <span class="p">[</span><span class="n">decode_nav00</span><span class="p">(</span><span class="n">frame</span><span class="o">.</span><span class="n">peer_address</span><span class="p">,</span> <span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">t</span><span class="p">,</span> <span class="n">_n</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">parse_cells</span><span class="p">(</span><span class="n">frame</span><span class="o">.</span><span class="n">body</span><span class="p">)</span> <span class="k">if</span> <span class="n">t</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span></div>
+
+
+
+<span class="c1"># ----------------------------- сборка кадров -----------------------------</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build_frame</span><span class="p">(</span><span class="n">peer</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">service</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">nph_type</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">request_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">body</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+    <span class="n">payload</span> <span class="o">=</span> <span class="n">NPH</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">service</span><span class="p">,</span> <span class="n">nph_type</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="n">request_id</span> <span class="o">&amp;</span> <span class="mh">0xFFFFFFFF</span><span class="p">)</span> <span class="o">+</span> <span class="n">body</span>
+    <span class="n">crc</span> <span class="o">=</span> <span class="n">_swap16</span><span class="p">(</span><span class="n">crc16_modbus</span><span class="p">(</span><span class="n">payload</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">NPL</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="n">NPL_SIGNATURE</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">payload</span><span class="p">),</span> <span class="mi">0</span><span class="p">,</span> <span class="n">crc</span><span class="p">,</span> <span class="n">NPL_TYPE_NPH</span><span class="p">,</span> <span class="n">peer</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">+</span> <span class="n">payload</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build_handshake</span><span class="p">(</span><span class="n">unit_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">request_id</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+    <span class="n">body</span> <span class="o">=</span> <span class="n">HANDSHAKE</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="mi">6</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">unit_id</span><span class="p">,</span> <span class="mi">65535</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">build_frame</span><span class="p">(</span><span class="n">unit_id</span><span class="p">,</span> <span class="n">SERVICE_GENERIC_CONTROLS</span><span class="p">,</span> <span class="n">NPH_SGC_CONN_REQUEST</span><span class="p">,</span> <span class="n">request_id</span><span class="p">,</span> <span class="n">body</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build_nav00</span><span class="p">(</span><span class="n">ts</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">lon</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">lat</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">valid</span><span class="p">:</span> <span class="nb">bool</span><span class="p">,</span> <span class="n">speed</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">course</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">alt</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+    <span class="n">bits</span> <span class="o">=</span> <span class="p">(</span><span class="mi">1</span> <span class="o">&lt;&lt;</span> <span class="mi">5</span> <span class="k">if</span> <span class="n">lat</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="mi">1</span> <span class="o">&lt;&lt;</span> <span class="mi">6</span> <span class="k">if</span> <span class="n">lon</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="mi">1</span> <span class="o">&lt;&lt;</span> <span class="mi">7</span> <span class="k">if</span> <span class="n">valid</span> <span class="k">else</span> <span class="mi">0</span><span class="p">)</span>
+    <span class="n">payload</span> <span class="o">=</span> <span class="n">NAV00</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span>
+        <span class="nb">int</span><span class="p">(</span><span class="n">ts</span><span class="p">),</span>
+        <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">lon</span><span class="p">)</span> <span class="o">*</span> <span class="mf">1e7</span><span class="p">)),</span>
+        <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">lat</span><span class="p">)</span> <span class="o">*</span> <span class="mf">1e7</span><span class="p">)),</span>
+        <span class="n">bits</span><span class="p">,</span>
+        <span class="mi">200</span><span class="p">,</span>
+        <span class="nb">int</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">speed</span><span class="p">,</span> <span class="mi">65535</span><span class="p">))),</span>
+        <span class="nb">int</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">speed</span><span class="p">,</span> <span class="mi">65535</span><span class="p">))),</span>
+        <span class="nb">int</span><span class="p">(</span><span class="n">course</span><span class="p">)</span> <span class="o">%</span> <span class="mi">361</span><span class="p">,</span>
+        <span class="mi">0</span><span class="p">,</span>
+        <span class="nb">int</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">min</span><span class="p">(</span><span class="n">alt</span><span class="p">,</span> <span class="mi">65535</span><span class="p">))),</span>
+        <span class="mi">12</span><span class="p">,</span>
+        <span class="mi">10</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="nb">bytes</span><span class="p">([</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">])</span> <span class="o">+</span> <span class="n">payload</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">build_realtime</span><span class="p">(</span><span class="n">unit_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">request_id</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">cells</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bytes</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">build_frame</span><span class="p">(</span><span class="n">unit_id</span><span class="p">,</span> <span class="n">SERVICE_NAVDATA</span><span class="p">,</span> <span class="n">NPH_SND_REALTIME</span><span class="p">,</span> <span class="n">request_id</span><span class="p">,</span> <span class="n">cells</span><span class="p">)</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Transit Delay Predictor</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Искать" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Навигация</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../ml.html">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../ndtp.html">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../service.html">ML-сервис (FastAPI)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../backend.html">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Код модуля</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,40 @@
+{
+  "single_replica": {
+    "copies": 50,
+    "shards": 1,
+    "active_vehicles": 500,
+    "per_shard": [
+      {
+        "vehicles": 500,
+        "warm_ms": 1125.0
+      }
+    ],
+    "cycle_ms_parallel": 1125.0,
+    "ms_per_vehicle": 2.25
+  },
+  "four_shards": {
+    "copies": 50,
+    "shards": 4,
+    "active_vehicles": 500,
+    "per_shard": [
+      {
+        "vehicles": 124,
+        "warm_ms": 282.1
+      },
+      {
+        "vehicles": 122,
+        "warm_ms": 278.6
+      },
+      {
+        "vehicles": 126,
+        "warm_ms": 282.5
+      },
+      {
+        "vehicles": 128,
+        "warm_ms": 280.2
+      }
+    ],
+    "cycle_ms_parallel": 282.5,
+    "ms_per_vehicle": 2.26
+  }
+}

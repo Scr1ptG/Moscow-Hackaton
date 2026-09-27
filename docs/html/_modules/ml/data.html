@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+
+<html lang="ru" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ml.data &#8212; документация Transit Delay Predictor </title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=372fde1a"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/translations.js?v=cd1d70c9"></script>
+    <link rel="index" title="Алфавитный указатель" href="../../genindex.html" />
+    <link rel="search" title="Поиск" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Исходный код ml.data</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Загрузка сырых данных хакатона.</span>
+
+<span class="sd">Все времена переводятся в Unix-секунды (``float64``, наивное время раздачи</span>
+<span class="sd">трактуется как UTC — так же, как в ``sample_id``). Работа с числами вместо</span>
+<span class="sd">``datetime`` упрощает и ускоряет расчёт признаков.</span>
+
+<span class="sd">Принцип анти-утечки: функции, возвращающие расписание для признаков</span>
+<span class="sd">(:func:`load_schedule_plan`), **никогда** не отдают фактические времена</span>
+<span class="sd">(``time_fact_begin``) и флаг ``manual_fill`` — они описывают будущее относительно</span>
+<span class="sd">момента прогноза. Факт доступен только через :func:`load_schedule_facts` и</span>
+<span class="sd">используется исключительно для калибровки/оценки, не для признаков.</span>
+<span class="sd">"""</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="n">DATA_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"MT_DATA_DIR"</span><span class="p">,</span> <span class="sa">r</span><span class="s2">"C:\Users\ibrag\Downloads\dataset"</span><span class="p">))</span>
+
+<span class="c1">#: ID синтетических ТС начинаются с этого значения (копии реальных со сдвигом).</span>
+<span class="n">SYNTHETIC_TR_ID_MIN</span> <span class="o">=</span> <span class="mi">9_000_000</span>
+
+<span class="n">SPLITS</span> <span class="o">=</span> <span class="p">(</span><span class="s2">"train"</span><span class="p">,</span> <span class="s2">"test"</span><span class="p">,</span> <span class="s2">"validate"</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="to_unix">
+<a class="viewcode-back" href="../../ml.html#ml.data.to_unix">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">to_unix</span><span class="p">(</span><span class="n">s</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Переводит строку/серию дат в Unix-секунды (float64)."""</span>
+    <span class="n">dt</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">s</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">"mixed"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">(</span><span class="n">dt</span> <span class="o">-</span> <span class="n">pd</span><span class="o">.</span><span class="n">Timestamp</span><span class="p">(</span><span class="s2">"1970-01-01"</span><span class="p">))</span><span class="o">.</span><span class="n">dt</span><span class="o">.</span><span class="n">total_seconds</span><span class="p">()</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">dtype</span><span class="o">=</span><span class="s2">"float64"</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="parse_point_wkt">
+<a class="viewcode-back" href="../../ml.html#ml.data.parse_point_wkt">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_point_wkt</span><span class="p">(</span><span class="n">geom</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Разбирает WKT ``POINT (lon lat)`` в два массива."""</span>
+    <span class="n">xy</span> <span class="o">=</span> <span class="n">geom</span><span class="o">.</span><span class="n">str</span><span class="o">.</span><span class="n">extract</span><span class="p">(</span><span class="sa">r</span><span class="s2">"POINT \(([-\d.eE]+) ([-\d.eE]+)\)"</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float64"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">xy</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span> <span class="n">xy</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="load_traffic">
+<a class="viewcode-back" href="../../ml.html#ml.data.load_traffic">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_traffic</span><span class="p">(</span><span class="n">split</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">=</span> <span class="n">DATA_DIR</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Телеметрия (раскодированные ячейки NDTP ``G6CellNav00``).</span>
+
+<span class="sd">    Возвращает колонки: ``tr_id, t, valid, lon, lat, speed, heading, is_hist``.</span>
+<span class="sd">    Невалидные координаты обнуляются в NaN (у части невалидных строк координаты</span>
+<span class="sd">    заполнены мусором/последним известным значением).</span>
+<span class="sd">    """</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">data_dir</span> <span class="o">/</span> <span class="n">split</span> <span class="o">/</span> <span class="s2">"traffic.csv"</span>
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span>
+        <span class="n">path</span><span class="p">,</span>
+        <span class="n">usecols</span><span class="o">=</span><span class="p">[</span><span class="s2">"tr_id"</span><span class="p">,</span> <span class="s2">"event_time"</span><span class="p">,</span> <span class="s2">"location_valid"</span><span class="p">,</span> <span class="s2">"lon"</span><span class="p">,</span> <span class="s2">"lat"</span><span class="p">,</span> <span class="s2">"speed"</span><span class="p">,</span> <span class="s2">"heading"</span><span class="p">,</span> <span class="s2">"is_hist_data"</span><span class="p">],</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="p">{</span><span class="s2">"tr_id"</span><span class="p">:</span> <span class="s2">"int64"</span><span class="p">,</span> <span class="s2">"lon"</span><span class="p">:</span> <span class="s2">"float64"</span><span class="p">,</span> <span class="s2">"lat"</span><span class="p">:</span> <span class="s2">"float64"</span><span class="p">,</span> <span class="s2">"speed"</span><span class="p">:</span> <span class="s2">"float64"</span><span class="p">,</span> <span class="s2">"heading"</span><span class="p">:</span> <span class="s2">"float64"</span><span class="p">},</span>
+    <span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">"tr_id"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"tr_id"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"t"</span><span class="p">:</span> <span class="n">to_unix</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">"event_time"</span><span class="p">]),</span>
+            <span class="s2">"valid"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"location_valid"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">bool</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"lon"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"lon"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"lat"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"lat"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"speed"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"speed"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"heading"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"heading"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"is_hist"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"is_hist_data"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">bool</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+        <span class="p">}</span>
+    <span class="p">)</span>
+    <span class="n">bad</span> <span class="o">=</span> <span class="p">(</span><span class="o">~</span><span class="n">out</span><span class="p">[</span><span class="s2">"valid"</span><span class="p">])</span> <span class="o">|</span> <span class="p">(</span><span class="n">out</span><span class="p">[</span><span class="s2">"lon"</span><span class="p">]</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">)</span> <span class="o">|</span> <span class="p">(</span><span class="n">out</span><span class="p">[</span><span class="s2">"lat"</span><span class="p">]</span><span class="o">.</span><span class="n">abs</span><span class="p">()</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">)</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">bad</span><span class="p">,</span> <span class="p">[</span><span class="s2">"lon"</span><span class="p">,</span> <span class="s2">"lat"</span><span class="p">,</span> <span class="s2">"heading"</span><span class="p">]]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+    <span class="n">out</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">bad</span> <span class="o">|</span> <span class="p">(</span><span class="n">out</span><span class="p">[</span><span class="s2">"speed"</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">150</span><span class="p">),</span> <span class="s2">"speed"</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+    <span class="n">out</span><span class="p">[</span><span class="s2">"valid"</span><span class="p">]</span> <span class="o">=</span> <span class="o">~</span><span class="n">bad</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">out</span><span class="o">.</span><span class="n">sort_values</span><span class="p">([</span><span class="s2">"tr_id"</span><span class="p">,</span> <span class="s2">"t"</span><span class="p">],</span> <span class="n">kind</span><span class="o">=</span><span class="s2">"stable"</span><span class="p">)</span><span class="o">.</span><span class="n">drop_duplicates</span><span class="p">([</span><span class="s2">"tr_id"</span><span class="p">,</span> <span class="s2">"t"</span><span class="p">],</span> <span class="n">keep</span><span class="o">=</span><span class="s2">"last"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_schedule_path</span><span class="p">(</span><span class="n">split</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">:</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s2">"schedule_plan.csv"</span> <span class="k">if</span> <span class="n">split</span> <span class="o">==</span> <span class="s2">"validate"</span> <span class="k">else</span> <span class="s2">"schedule.csv"</span>
+    <span class="k">return</span> <span class="n">data_dir</span> <span class="o">/</span> <span class="n">split</span> <span class="o">/</span> <span class="n">name</span>
+
+
+<div class="viewcode-block" id="load_schedule_plan">
+<a class="viewcode-back" href="../../ml.html#ml.data.load_schedule_plan">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_schedule_plan</span><span class="p">(</span><span class="n">split</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">=</span> <span class="n">DATA_DIR</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Плановое расписание без факта: ``stop_id, tr_id, plan, lon, lat``.</span>
+
+<span class="sd">    Это единственный вид расписания, который допускается в признаки.</span>
+<span class="sd">    """</span>
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">_schedule_path</span><span class="p">(</span><span class="n">split</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">),</span> <span class="n">usecols</span><span class="o">=</span><span class="p">[</span><span class="s2">"tt_action_item_id"</span><span class="p">,</span> <span class="s2">"tr_id"</span><span class="p">,</span> <span class="s2">"time_begin"</span><span class="p">,</span> <span class="s2">"geom"</span><span class="p">])</span>
+    <span class="n">lon</span><span class="p">,</span> <span class="n">lat</span> <span class="o">=</span> <span class="n">parse_point_wkt</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">"geom"</span><span class="p">])</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">"stop_id"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"tt_action_item_id"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"int64"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"tr_id"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"tr_id"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"int64"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"plan"</span><span class="p">:</span> <span class="n">to_unix</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">"time_begin"</span><span class="p">]),</span>
+            <span class="s2">"lon"</span><span class="p">:</span> <span class="n">lon</span><span class="p">,</span>
+            <span class="s2">"lat"</span><span class="p">:</span> <span class="n">lat</span><span class="p">,</span>
+        <span class="p">}</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">out</span></div>
+
+
+
+<div class="viewcode-block" id="load_schedule_facts">
+<a class="viewcode-back" href="../../ml.html#ml.data.load_schedule_facts">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_schedule_facts</span><span class="p">(</span><span class="n">split</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">=</span> <span class="n">DATA_DIR</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Факт прибытия (только train/test). **Не использовать в признаках.**</span>
+
+<span class="sd">    Нужен для калибровки детектора прибытий и анализа ошибок.</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">split</span> <span class="o">==</span> <span class="s2">"validate"</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="s2">"В validate факта нет (и использовать его нельзя)."</span><span class="p">)</span>
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">_schedule_path</span><span class="p">(</span><span class="n">split</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">),</span> <span class="n">usecols</span><span class="o">=</span><span class="p">[</span><span class="s2">"tt_action_item_id"</span><span class="p">,</span> <span class="s2">"time_fact_begin"</span><span class="p">,</span> <span class="s2">"manual_fill"</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">"stop_id"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"tt_action_item_id"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"int64"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"fact"</span><span class="p">:</span> <span class="n">to_unix</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">"time_fact_begin"</span><span class="p">]),</span>
+            <span class="s2">"manual_fill"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"manual_fill"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">bool</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+        <span class="p">}</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_points">
+<a class="viewcode-back" href="../../ml.html#ml.data.load_points">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_points</span><span class="p">(</span><span class="n">split</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">=</span> <span class="n">DATA_DIR</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Прогнозные точки: разметка (train/test) или ``validate/points.csv``.</span>
+
+<span class="sd">    Колонки: ``sample_id, tr_id, T, target_stop_id, target_plan, cur_dev_s``</span>
+<span class="sd">    и, если есть, ``y`` (= ``target_delay_s``).</span>
+<span class="sd">    """</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">data_dir</span> <span class="o">/</span> <span class="p">(</span><span class="s2">"validate/points.csv"</span> <span class="k">if</span> <span class="n">split</span> <span class="o">==</span> <span class="s2">"validate"</span> <span class="k">else</span> <span class="sa">f</span><span class="s2">"labels/labels_</span><span class="si">{</span><span class="n">split</span><span class="si">}</span><span class="s2">.csv"</span><span class="p">)</span>
+    <span class="n">df</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+        <span class="p">{</span>
+            <span class="s2">"sample_id"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"sample_id"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">str</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"tr_id"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"tr_id"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"int64"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"T"</span><span class="p">:</span> <span class="n">to_unix</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">"T"</span><span class="p">]),</span>
+            <span class="s2">"target_stop_id"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"target_stop_id"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"int64"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"target_plan"</span><span class="p">:</span> <span class="n">to_unix</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">"target_time_begin"</span><span class="p">]),</span>
+            <span class="s2">"cur_dev_s"</span><span class="p">:</span> <span class="n">df</span><span class="p">[</span><span class="s2">"cur_dev_s"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float64"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+        <span class="p">}</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="s2">"target_delay_s"</span> <span class="ow">in</span> <span class="n">df</span><span class="p">:</span>
+        <span class="n">out</span><span class="p">[</span><span class="s2">"y"</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">"target_delay_s"</span><span class="p">]</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float64"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+    <span class="n">out</span><span class="p">[</span><span class="s2">"split"</span><span class="p">]</span> <span class="o">=</span> <span class="n">split</span>
+    <span class="n">out</span><span class="p">[</span><span class="s2">"is_synthetic"</span><span class="p">]</span> <span class="o">=</span> <span class="n">out</span><span class="p">[</span><span class="s2">"tr_id"</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">SYNTHETIC_TR_ID_MIN</span>
+    <span class="k">return</span> <span class="n">out</span></div>
+
+
+
+<div class="viewcode-block" id="SplitData">
+<a class="viewcode-back" href="../../ml.html#ml.data.SplitData">[документация]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SplitData</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Все входы одного сплита, достаточные для построения признаков."""</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">traffic</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span>
+    <span class="n">schedule</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span>
+    <span class="n">points</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span></div>
+
+
+
+<div class="viewcode-block" id="load_split">
+<a class="viewcode-back" href="../../ml.html#ml.data.load_split">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_split</span><span class="p">(</span><span class="n">split</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">:</span> <span class="n">Path</span> <span class="o">=</span> <span class="n">DATA_DIR</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SplitData</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Загружает телеметрию, план и прогнозные точки сплита."""</span>
+    <span class="k">return</span> <span class="n">SplitData</span><span class="p">(</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">split</span><span class="p">,</span>
+        <span class="n">traffic</span><span class="o">=</span><span class="n">load_traffic</span><span class="p">(</span><span class="n">split</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">),</span>
+        <span class="n">schedule</span><span class="o">=</span><span class="n">load_schedule_plan</span><span class="p">(</span><span class="n">split</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">),</span>
+        <span class="n">points</span><span class="o">=</span><span class="n">load_points</span><span class="p">(</span><span class="n">split</span><span class="p">,</span> <span class="n">data_dir</span><span class="p">),</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="base_vehicle_map">
+<a class="viewcode-back" href="../../ml.html#ml.data.base_vehicle_map">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">base_vehicle_map</span><span class="p">(</span><span class="n">train_schedule</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Сопоставляет синтетическому ТС его реальный «оригинал».</span>
+
+<span class="sd">    Синтетика — копия реального ТС: те же остановки (``lon/lat``) в том же</span>
+<span class="sd">    порядке, но со сдвигом плана по времени. Для честной групповой</span>
+<span class="sd">    кросс-валидации копии должны лежать в одном фолде с оригиналом.</span>
+<span class="sd">    """</span>
+    <span class="n">sig</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">tr</span><span class="p">,</span> <span class="n">g</span> <span class="ow">in</span> <span class="n">train_schedule</span><span class="o">.</span><span class="n">sort_values</span><span class="p">([</span><span class="s2">"tr_id"</span><span class="p">,</span> <span class="s2">"plan"</span><span class="p">])</span><span class="o">.</span><span class="n">groupby</span><span class="p">(</span><span class="s2">"tr_id"</span><span class="p">):</span>
+        <span class="n">key</span> <span class="o">=</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">g</span><span class="p">),</span> <span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nansum</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="s2">"lon"</span><span class="p">])),</span> <span class="mi">5</span><span class="p">),</span> <span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">nansum</span><span class="p">(</span><span class="n">g</span><span class="p">[</span><span class="s2">"lat"</span><span class="p">])),</span> <span class="mi">5</span><span class="p">))</span>
+        <span class="n">sig</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">tr</span><span class="p">)]</span> <span class="o">=</span> <span class="n">key</span>
+    <span class="n">real</span> <span class="o">=</span> <span class="p">{</span><span class="n">v</span><span class="p">:</span> <span class="n">k</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">sig</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">k</span> <span class="o">&lt;</span> <span class="n">SYNTHETIC_TR_ID_MIN</span><span class="p">}</span>
+    <span class="k">return</span> <span class="p">{</span><span class="n">tr</span><span class="p">:</span> <span class="p">(</span><span class="n">tr</span> <span class="k">if</span> <span class="n">tr</span> <span class="o">&lt;</span> <span class="n">SYNTHETIC_TR_ID_MIN</span> <span class="k">else</span> <span class="n">real</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">tr</span><span class="p">))</span> <span class="k">for</span> <span class="n">tr</span><span class="p">,</span> <span class="n">key</span> <span class="ow">in</span> <span class="n">sig</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Transit Delay Predictor</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Искать" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Навигация</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../ml.html">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../ndtp.html">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../service.html">ML-сервис (FastAPI)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../backend.html">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Код модуля</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

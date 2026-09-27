@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+
+<html lang="ru" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ml.explain &#8212; документация Transit Delay Predictor </title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=372fde1a"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/translations.js?v=cd1d70c9"></script>
+    <link rel="index" title="Алфавитный указатель" href="../../genindex.html" />
+    <link rel="search" title="Поиск" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Исходный код ml.explain</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Объяснение прогноза: причины/паттерны сбоя для карточки инцидента.</span>
+
+<span class="sd">Вклады признаков считаются LightGBM (``pred_contrib=True`` — точные TreeSHAP</span>
+<span class="sd">значения) и суммируются по смысловым группам. Группа с наибольшим</span>
+<span class="sd">положительным вкладом — «предполагаемая причина» опоздания, с наибольшим</span>
+<span class="sd">отрицательным — причина опережения.</span>
+<span class="sd">"""</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="c1">#: Смысловые группы признаков -&gt; (код, текст для диспетчера).</span>
+<span class="n">FACTOR_GROUPS</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"accumulated_delay"</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">"Накопленное отклонение от графика"</span><span class="p">,</span>
+        <span class="p">[</span><span class="s2">"cur_dev_s"</span><span class="p">,</span> <span class="s2">"cur_dev_is0"</span><span class="p">,</span> <span class="s2">"det_delay"</span><span class="p">,</span> <span class="s2">"detw_delay"</span><span class="p">,</span> <span class="s2">"det_delay_mean3"</span><span class="p">,</span> <span class="s2">"detw_delay_mean3"</span><span class="p">,</span> <span class="s2">"pos_delay"</span><span class="p">,</span> <span class="s2">"pos_u"</span><span class="p">,</span>
+         <span class="s2">"det_lb"</span><span class="p">,</span> <span class="s2">"detw_lb"</span><span class="p">,</span> <span class="s2">"det_at_last_plan"</span><span class="p">,</span> <span class="s2">"cur_minus_det_last"</span><span class="p">,</span> <span class="s2">"det_age"</span><span class="p">,</span> <span class="s2">"detw_age"</span><span class="p">],</span>
+    <span class="p">),</span>
+    <span class="s2">"trend"</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">"ТС продолжает терять/нагонять время на маршруте"</span><span class="p">,</span>
+        <span class="p">[</span><span class="s2">"det_slope"</span><span class="p">,</span> <span class="s2">"detw_slope"</span><span class="p">,</span> <span class="s2">"det_extrap"</span><span class="p">,</span> <span class="s2">"detw_extrap"</span><span class="p">,</span> <span class="s2">"plan_rate_extrap"</span><span class="p">,</span> <span class="s2">"det_plan_rate"</span><span class="p">,</span> <span class="s2">"phys_delay"</span><span class="p">,</span> <span class="s2">"det_speed_route"</span><span class="p">],</span>
+    <span class="p">),</span>
+    <span class="s2">"slow_traffic"</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">"Низкая скорость / простой (затор, длительная посадка)"</span><span class="p">,</span>
+        <span class="p">[</span><span class="s2">"speed_last"</span><span class="p">,</span> <span class="s2">"speed_mean_2m"</span><span class="p">,</span> <span class="s2">"speed_mean_5m"</span><span class="p">,</span> <span class="s2">"speed_mean_10m"</span><span class="p">,</span> <span class="s2">"stop_share_2m"</span><span class="p">,</span> <span class="s2">"stop_share_5m"</span><span class="p">,</span> <span class="s2">"stop_share_10m"</span><span class="p">,</span>
+         <span class="s2">"moved_5m"</span><span class="p">,</span> <span class="s2">"moved_10m"</span><span class="p">],</span>
+    <span class="p">),</span>
+    <span class="s2">"terminal_layover"</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">"Отстой на конечной / начало нового рейса"</span><span class="p">,</span>
+        <span class="p">[</span><span class="s2">"layover_path_s"</span><span class="p">,</span> <span class="s2">"tgt_after_layover_s"</span><span class="p">,</span> <span class="s2">"layover_end_minus_T"</span><span class="p">,</span> <span class="s2">"dist_to_layover_stop"</span><span class="p">,</span> <span class="s2">"at_terminal_s"</span><span class="p">,</span> <span class="s2">"layover_slack_s"</span><span class="p">,</span>
+         <span class="s2">"n_trip_starts_path"</span><span class="p">,</span> <span class="s2">"max_gap_path"</span><span class="p">,</span> <span class="s2">"tgt_is_trip_start"</span><span class="p">,</span> <span class="s2">"last_is_trip_end"</span><span class="p">,</span> <span class="s2">"tgt_gap_prev"</span><span class="p">],</span>
+    <span class="p">),</span>
+    <span class="s2">"segment_history"</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">"Этот участок в прошлых рейсах сегодня"</span><span class="p">,</span>
+        <span class="p">[</span><span class="s2">"hist_tgt_delay"</span><span class="p">,</span> <span class="s2">"hist_tgt_age"</span><span class="p">,</span> <span class="s2">"hist_tgt_delay_mean3"</span><span class="p">,</span> <span class="s2">"hist_gain"</span><span class="p">,</span> <span class="s2">"hist_gain_mean"</span><span class="p">,</span> <span class="s2">"det_plus_hist_gain"</span><span class="p">,</span>
+         <span class="s2">"hist_tripstart_delay"</span><span class="p">,</span> <span class="s2">"hist_tgt_det_share"</span><span class="p">,</span> <span class="s2">"hist_tgt_dmin"</span><span class="p">],</span>
+    <span class="p">),</span>
+    <span class="s2">"tight_schedule"</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">"Плотный плановый график на участке"</span><span class="p">,</span>
+        <span class="p">[</span><span class="s2">"plan_path_s"</span><span class="p">,</span> <span class="s2">"plan_path_m"</span><span class="p">,</span> <span class="s2">"plan_path_speed"</span><span class="p">,</span> <span class="s2">"n_stops_plan"</span><span class="p">,</span> <span class="s2">"since_last_plan"</span><span class="p">,</span> <span class="s2">"lead_s"</span><span class="p">,</span> <span class="s2">"tgt_dist_prev"</span><span class="p">,</span>
+         <span class="s2">"tgt_pos_in_trip"</span><span class="p">,</span> <span class="s2">"tgt_to_trip_end"</span><span class="p">,</span> <span class="s2">"trip_len"</span><span class="p">,</span> <span class="s2">"det_stops_to_tgt"</span><span class="p">,</span> <span class="s2">"detw_stops_to_tgt"</span><span class="p">,</span> <span class="s2">"det_plan_to_tgt"</span><span class="p">,</span>
+         <span class="s2">"detw_plan_to_tgt"</span><span class="p">,</span> <span class="s2">"det_next_plan_minus_T"</span><span class="p">,</span> <span class="s2">"detw_next_plan_minus_T"</span><span class="p">,</span> <span class="s2">"dist_to_tgt"</span><span class="p">,</span> <span class="s2">"dist_to_last_plan"</span><span class="p">,</span>
+         <span class="s2">"dist_to_next_plan"</span><span class="p">,</span> <span class="s2">"det_same_trip"</span><span class="p">,</span> <span class="s2">"detw_same_trip"</span><span class="p">,</span> <span class="s2">"det_n15m"</span><span class="p">,</span> <span class="s2">"detw_n15m"</span><span class="p">],</span>
+    <span class="p">),</span>
+    <span class="s2">"telematics_loss"</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">"Потеря/деградация телематики (GPS, связь)"</span><span class="p">,</span>
+        <span class="p">[</span><span class="s2">"has_telemetry"</span><span class="p">,</span> <span class="s2">"age_last_pkt"</span><span class="p">,</span> <span class="s2">"age_last_valid"</span><span class="p">,</span> <span class="s2">"n_pkt_5m"</span><span class="p">,</span> <span class="s2">"n_pkt_15m"</span><span class="p">,</span> <span class="s2">"n_pkt_30m"</span><span class="p">,</span> <span class="s2">"valid_share_5m"</span><span class="p">,</span>
+         <span class="s2">"valid_share_15m"</span><span class="p">,</span> <span class="s2">"valid_share_30m"</span><span class="p">,</span> <span class="s2">"det_rate_recent"</span><span class="p">,</span> <span class="s2">"n_plan_recent"</span><span class="p">],</span>
+    <span class="p">),</span>
+    <span class="s2">"time_of_day"</span><span class="p">:</span> <span class="p">(</span><span class="s2">"Время суток (час пик)"</span><span class="p">,</span> <span class="p">[</span><span class="s2">"hour"</span><span class="p">]),</span>
+<span class="p">}</span>
+
+
+<div class="viewcode-block" id="group_contributions">
+<a class="viewcode-back" href="../../ml.html#ml.explain.group_contributions">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">group_contributions</span><span class="p">(</span><span class="n">contrib</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">feats</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Суммирует SHAP-вклады ``[N, F(+1)]`` по группам :data:`FACTOR_GROUPS`."""</span>
+    <span class="n">contrib</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">contrib</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">contrib</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">feats</span><span class="p">)</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:</span>  <span class="c1"># последний столбец — bias</span>
+        <span class="n">contrib</span> <span class="o">=</span> <span class="n">contrib</span><span class="p">[:,</span> <span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">idx</span> <span class="o">=</span> <span class="p">{</span><span class="n">f</span><span class="p">:</span> <span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">f</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">feats</span><span class="p">)}</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">used</span> <span class="o">=</span> <span class="nb">set</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">code</span><span class="p">,</span> <span class="p">(</span><span class="n">_title</span><span class="p">,</span> <span class="n">cols</span><span class="p">)</span> <span class="ow">in</span> <span class="n">FACTOR_GROUPS</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">ii</span> <span class="o">=</span> <span class="p">[</span><span class="n">idx</span><span class="p">[</span><span class="n">c</span><span class="p">]</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">cols</span> <span class="k">if</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">idx</span><span class="p">]</span>
+        <span class="n">used</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">ii</span><span class="p">)</span>
+        <span class="n">out</span><span class="p">[</span><span class="n">code</span><span class="p">]</span> <span class="o">=</span> <span class="n">contrib</span><span class="p">[:,</span> <span class="n">ii</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">ii</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">contrib</span><span class="p">))</span>
+    <span class="n">rest</span> <span class="o">=</span> <span class="p">[</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">feats</span><span class="p">))</span> <span class="k">if</span> <span class="n">i</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">used</span><span class="p">]</span>
+    <span class="n">out</span><span class="p">[</span><span class="s2">"other"</span><span class="p">]</span> <span class="o">=</span> <span class="n">contrib</span><span class="p">[:,</span> <span class="n">rest</span><span class="p">]</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">rest</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">contrib</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">out</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="top_cause">
+<a class="viewcode-back" href="../../ml.html#ml.explain.top_cause">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">top_cause</span><span class="p">(</span><span class="n">groups_row</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span> <span class="n">predicted_delay</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Главная причина: самый большой вклад в сторону прогноза (опоздание/опережение)."""</span>
+    <span class="n">g</span> <span class="o">=</span> <span class="n">groups_row</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">labels</span><span class="o">=</span><span class="p">[</span><span class="s2">"other"</span><span class="p">],</span> <span class="n">errors</span><span class="o">=</span><span class="s2">"ignore"</span><span class="p">)</span>
+    <span class="n">code</span> <span class="o">=</span> <span class="n">g</span><span class="o">.</span><span class="n">idxmax</span><span class="p">()</span> <span class="k">if</span> <span class="n">predicted_delay</span> <span class="o">&gt;=</span> <span class="mi">0</span> <span class="k">else</span> <span class="n">g</span><span class="o">.</span><span class="n">idxmin</span><span class="p">()</span>
+    <span class="k">return</span> <span class="n">code</span><span class="p">,</span> <span class="n">FACTOR_GROUPS</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="p">(</span><span class="s2">"Прочее"</span><span class="p">,</span> <span class="p">[]))[</span><span class="mi">0</span><span class="p">]</span></div>
+
+
+
+<div class="viewcode-block" id="behaviour_patterns">
+<a class="viewcode-back" href="../../ml.html#ml.explain.behaviour_patterns">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">behaviour_patterns</span><span class="p">(</span><span class="n">f</span><span class="p">:</span> <span class="nb">dict</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Правила-паттерны поведения ТС, предшествующие сбою (для карточки инцидента)."""</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"stop_share_5m"</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mf">0.6</span> <span class="ow">and</span> <span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"speed_mean_5m"</span><span class="p">,</span> <span class="mi">99</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">8</span><span class="p">:</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"Длительный простой за последние 5 мин (затор или долгая посадка)"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"speed_mean_2m"</span><span class="p">,</span> <span class="mi">99</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">10</span> <span class="ow">and</span> <span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"speed_mean_10m"</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">18</span><span class="p">:</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"Резкое снижение скорости на подходе (перекрёсток/затор)"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"det_slope"</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mf">0.15</span><span class="p">:</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"Отставание растёт: ТС теряет время от остановки к остановке"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"det_slope"</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&lt;</span> <span class="o">-</span><span class="mf">0.15</span><span class="p">:</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"ТС нагоняет график"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"n_trip_starts_path"</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"layover_slack_s"</span><span class="p">)</span> <span class="ow">or</span> <span class="mf">1e9</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">120</span><span class="p">:</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"Недостаточный запас на отстой: следующий рейс начнётся с опозданием"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"valid_share_15m"</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">1</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.5</span> <span class="ow">or</span> <span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"age_last_valid"</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">300</span><span class="p">:</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"Потеря GPS/связи: прогноз по последнему известному состоянию"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="p">(</span><span class="n">f</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"hist_gain_mean"</span><span class="p">)</span> <span class="ow">or</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">90</span><span class="p">:</span>
+        <span class="n">p</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"На этом участке ТС сегодня стабильно теряет время"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">p</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Transit Delay Predictor</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Искать" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Навигация</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../ml.html">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../ndtp.html">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../service.html">ML-сервис (FastAPI)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../backend.html">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Код модуля</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

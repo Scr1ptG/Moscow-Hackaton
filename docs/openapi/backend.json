@@ -1,0 +1,926 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Transit Delay Predictor — Backend",
+    "description": "Оркестрация: приём телеметрии NDTP, прогнозы ML-сервиса, инциденты, API и WebSocket для дашборда.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "summary": "Состояние сервиса и зависимостей",
+        "operationId": "health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/telemetry": {
+      "post": {
+        "summary": "Приём батча телеметрии от NDTP-сервера",
+        "operationId": "telemetry_api_v1_telemetry_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "items": {
+                  "$ref": "#/components/schemas/NavRecordIn"
+                },
+                "type": "array",
+                "title": "Records"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vehicles": {
+      "get": {
+        "summary": "ТС на карте: положение, риск, прогноз",
+        "operationId": "vehicles_api_v1_vehicles_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/VehicleOut"
+                  },
+                  "type": "array",
+                  "title": "Response Vehicles Api V1 Vehicles Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/vehicles/{tr_id}": {
+      "get": {
+        "summary": "Карточка ТС: состояние, последний прогноз, история прогнозов",
+        "operationId": "vehicle_api_v1_vehicles__tr_id__get",
+        "parameters": [
+          {
+            "name": "tr_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tr Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/routes": {
+      "get": {
+        "summary": "Линии маршрутов для карты",
+        "operationId": "routes_api_v1_routes_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts": {
+      "get": {
+        "summary": "Инциденты (по умолчанию активные)",
+        "operationId": "alerts_api_v1_alerts_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "active",
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AlertOut"
+                  },
+                  "title": "Response Alerts Api V1 Alerts Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/{alert_id}": {
+      "get": {
+        "summary": "Карточка инцидента: прогноз, интервал, причина, объяснение, участок",
+        "operationId": "alert_api_v1_alerts__alert_id__get",
+        "parameters": [
+          {
+            "name": "alert_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Alert Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/alerts/{alert_id}/ack": {
+      "post": {
+        "summary": "Диспетчер принял инцидент в работу",
+        "operationId": "ack_api_v1_alerts__alert_id__ack_post",
+        "parameters": [
+          {
+            "name": "alert_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Alert Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/whatif": {
+      "post": {
+        "summary": "What-if: как изменится прогноз при действии диспетчера",
+        "operationId": "whatif_api_v1_whatif_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WhatIfIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/metrics": {
+      "get": {
+        "summary": "Качество онлайн (на реплее дня с фактом) и производительность",
+        "operationId": "metrics_api_v1_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/model": {
+      "get": {
+        "summary": "Карточка модели (из ML-сервиса)",
+        "operationId": "model_api_v1_model_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/reload-model": {
+      "post": {
+        "summary": "Горячая перезагрузка модели в ML-сервисе",
+        "operationId": "reload_model_api_v1_admin_reload_model_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/replay": {
+      "post": {
+        "summary": "Запустить реплей исторического дня в NDTP (демо)",
+        "operationId": "replay_api_v1_admin_replay_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplayIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/emulator": {
+      "post": {
+        "summary": "Настроить эмулятор NDTP (проксирует POST /api/config)",
+        "operationId": "emulator_api_v1_admin_emulator_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmulatorIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AlertOut": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "tr_id": {
+            "type": "integer",
+            "title": "Tr Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "opened_at": {
+            "type": "number",
+            "title": "Opened At"
+          },
+          "updated_at": {
+            "type": "number",
+            "title": "Updated At"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "delay_pred": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delay Pred"
+          },
+          "p_late": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Late"
+          },
+          "cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cause"
+          },
+          "target_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Address"
+          },
+          "peak_delay_s": {
+            "type": "number",
+            "title": "Peak Delay S"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "tr_id",
+          "status",
+          "severity",
+          "opened_at",
+          "updated_at",
+          "peak_delay_s"
+        ],
+        "title": "AlertOut"
+      },
+      "EmulatorIn": {
+        "properties": {
+          "units": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Units",
+            "description": "unitId эмулируемых терминалов"
+          },
+          "interval_ms": {
+            "type": "integer",
+            "title": "Interval Ms",
+            "default": 5000
+          },
+          "target_host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Host",
+            "description": "по умолчанию EMULATOR_TARGET_HOST"
+          },
+          "target_port": {
+            "type": "integer",
+            "title": "Target Port",
+            "default": 9201
+          }
+        },
+        "type": "object",
+        "required": [
+          "units"
+        ],
+        "title": "EmulatorIn"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "NavRecordIn": {
+        "properties": {
+          "unit_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit Id",
+            "description": "ID бортового терминала (peerAddress)"
+          },
+          "tr_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tr Id",
+            "description": "ID ТС, если известен"
+          },
+          "t": {
+            "type": "number",
+            "title": "T",
+            "description": "Unix-время фиксации, с"
+          },
+          "valid": {
+            "type": "boolean",
+            "title": "Valid",
+            "default": true
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          }
+        },
+        "type": "object",
+        "required": [
+          "t"
+        ],
+        "title": "NavRecordIn",
+        "description": "Навигационная запись (ячейка NDTP ``G6CellNav00`` после парсинга)."
+      },
+      "ReplayIn": {
+        "properties": {
+          "split": {
+            "type": "string",
+            "title": "Split",
+            "default": "test"
+          },
+          "speed": {
+            "type": "number",
+            "title": "Speed",
+            "default": 60.0
+          },
+          "start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End"
+          }
+        },
+        "type": "object",
+        "title": "ReplayIn"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VehicleOut": {
+        "properties": {
+          "tr_id": {
+            "type": "integer",
+            "title": "Tr Id"
+          },
+          "scheduled": {
+            "type": "boolean",
+            "title": "Scheduled"
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed"
+          },
+          "heading": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heading"
+          },
+          "last_t": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last T"
+          },
+          "gps_valid": {
+            "type": "boolean",
+            "title": "Gps Valid"
+          },
+          "connection": {
+            "type": "string",
+            "title": "Connection",
+            "description": "ok | lost (нет телеметрии дольше STALE_AFTER_S)"
+          },
+          "risk": {
+            "type": "string",
+            "title": "Risk",
+            "description": "green | yellow | red | unknown"
+          },
+          "delay_pred": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delay Pred",
+            "description": "прогноз отклонения на цели через 10–15 мин, с"
+          },
+          "p_late": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Late"
+          },
+          "cause": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cause"
+          },
+          "target_stop_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Stop Id"
+          },
+          "prediction_stale": {
+            "type": "boolean",
+            "title": "Prediction Stale"
+          },
+          "alert_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alert Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tr_id",
+          "scheduled",
+          "gps_valid",
+          "connection",
+          "risk",
+          "prediction_stale"
+        ],
+        "title": "VehicleOut"
+      },
+      "WhatIfIn": {
+        "properties": {
+          "tr_id": {
+            "type": "integer",
+            "title": "Tr Id"
+          },
+          "delay_shift_s": {
+            "type": "number",
+            "title": "Delay Shift S",
+            "description": "ТС опоздает ещё на столько секунд (+) / нагонит (−)",
+            "default": 0
+          },
+          "extra_layover_min": {
+            "type": "number",
+            "title": "Extra Layover Min",
+            "description": "добавить минут отстоя на конечной (если отстой есть на пути)",
+            "default": 0
+          },
+          "reserve_vehicle": {
+            "type": "boolean",
+            "title": "Reserve Vehicle",
+            "description": "выпустить резервное ТС по графику",
+            "default": false
+          },
+          "overrides": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Overrides",
+            "description": "прямое переопределение признаков"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tr_id"
+        ],
+        "title": "WhatIfIn",
+        "description": "Сценарий диспетчера для ТС (к его последнему прогнозу)."
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+name: CI
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  docker-build:
+    name: Сборка Docker-образов (ml-service, backend, dashboard, ingest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose build
+        run: DATA_DIR=./data docker compose build
+
+  tests-docs:
+    name: Тесты без датасета + Sphinx
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements-ml.txt pytest sphinx
+      - name: NDTP codec tests
+        run: python -m pytest tests/test_ndtp.py -q
+      - name: import all modules
+        run: python -c "import ml.compact, ml.predictor, ml.online, ml.retrain, backend.main, services.ml_service.app, ndtp.server"
+      - name: Sphinx
+        run: python -m sphinx -q -b html docs /tmp/html

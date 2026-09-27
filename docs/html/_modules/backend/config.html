@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+
+<html lang="ru" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>backend.config &#8212; документация Transit Delay Predictor </title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=372fde1a"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/translations.js?v=cd1d70c9"></script>
+    <link rel="index" title="Алфавитный указатель" href="../../genindex.html" />
+    <link rel="search" title="Поиск" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Исходный код backend.config</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Настройки backend (переменные окружения)."""</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_env</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">return</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">default</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="Settings">
+<a class="viewcode-back" href="../../backend.html#backend.config.Settings">[документация]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Settings</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Параметры сервиса; все задаются через окружение (см. README)."""</span>
+
+    <span class="n">ml_url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">_env</span><span class="p">(</span><span class="s2">"ML_URL"</span><span class="p">,</span> <span class="s2">"http://localhost:8001"</span><span class="p">))</span>
+    <span class="n">data_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">_env</span><span class="p">(</span><span class="s2">"MT_DATA_DIR"</span><span class="p">,</span> <span class="sa">r</span><span class="s2">"C:\Users\ibrag\Downloads\dataset"</span><span class="p">))</span>
+    <span class="c1">#: какой день обслуживаем (для демо — день раздачи: test/validate/train)</span>
+    <span class="n">schedule_split</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">_env</span><span class="p">(</span><span class="s2">"SCHEDULE_SPLIT"</span><span class="p">,</span> <span class="s2">"test"</span><span class="p">))</span>
+    <span class="c1">#: как часто (в секундах реального времени) запрашивать прогнозы</span>
+    <span class="n">predict_every_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">_env</span><span class="p">(</span><span class="s2">"PREDICT_EVERY_S"</span><span class="p">,</span> <span class="s2">"2"</span><span class="p">)))</span>
+    <span class="c1">#: как часто пересылать накопленную телеметрию в ML</span>
+    <span class="n">forward_every_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">_env</span><span class="p">(</span><span class="s2">"FORWARD_EVERY_S"</span><span class="p">,</span> <span class="s2">"0.5"</span><span class="p">)))</span>
+    <span class="n">ml_timeout_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">_env</span><span class="p">(</span><span class="s2">"ML_TIMEOUT_S"</span><span class="p">,</span> <span class="s2">"10"</span><span class="p">)))</span>
+    <span class="c1">#: circuit breaker: после N ошибок подряд ML считается недоступным на cooldown секунд</span>
+    <span class="n">breaker_failures</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">_env</span><span class="p">(</span><span class="s2">"BREAKER_FAILURES"</span><span class="p">,</span> <span class="s2">"3"</span><span class="p">)))</span>
+    <span class="n">breaker_cooldown_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">_env</span><span class="p">(</span><span class="s2">"BREAKER_COOLDOWN_S"</span><span class="p">,</span> <span class="s2">"10"</span><span class="p">)))</span>
+    <span class="c1">#: ТС без телеметрии дольше этого (время потока) — «связь потеряна»</span>
+    <span class="n">stale_after_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">_env</span><span class="p">(</span><span class="s2">"STALE_AFTER_S"</span><span class="p">,</span> <span class="s2">"300"</span><span class="p">)))</span>
+    <span class="c1">#: минимальный уровень риска для алерта: yellow | red</span>
+    <span class="n">alert_min_risk</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">_env</span><span class="p">(</span><span class="s2">"ALERT_MIN_RISK"</span><span class="p">,</span> <span class="s2">"yellow"</span><span class="p">))</span>
+    <span class="c1">#: сколько «зелёных» циклов подряд нужно для закрытия алерта</span>
+    <span class="n">resolve_after_cycles</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">_env</span><span class="p">(</span><span class="s2">"RESOLVE_AFTER_CYCLES"</span><span class="p">,</span> <span class="s2">"2"</span><span class="p">)))</span>
+    <span class="c1">#: буфер телеметрии на время недоступности ML (записей)</span>
+    <span class="n">max_buffer</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">_env</span><span class="p">(</span><span class="s2">"MAX_BUFFER"</span><span class="p">,</span> <span class="s2">"300000"</span><span class="p">)))</span>
+    <span class="n">ndtp_host</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">_env</span><span class="p">(</span><span class="s2">"NDTP_HOST"</span><span class="p">,</span> <span class="s2">"localhost"</span><span class="p">))</span>
+    <span class="n">ndtp_port</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="n">_env</span><span class="p">(</span><span class="s2">"NDTP_PORT"</span><span class="p">,</span> <span class="s2">"9201"</span><span class="p">)))</span>
+    <span class="n">emulator_url</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">_env</span><span class="p">(</span><span class="s2">"EMULATOR_URL"</span><span class="p">,</span> <span class="s2">"http://localhost:18080"</span><span class="p">))</span>
+    <span class="c1">#: куда эмулятор шлёт NDTP: из Docker-сети — "ingest", с хоста — "host.docker.internal"</span>
+    <span class="n">emulator_target_host</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">_env</span><span class="p">(</span><span class="s2">"EMULATOR_TARGET_HOST"</span><span class="p">,</span> <span class="s2">"host.docker.internal"</span><span class="p">))</span></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Transit Delay Predictor</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Искать" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Навигация</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../ml.html">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../ndtp.html">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../service.html">ML-сервис (FastAPI)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../backend.html">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Код модуля</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

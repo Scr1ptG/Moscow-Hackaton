@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+
+<html lang="ru" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Предиктор изменений в графике транспорта &#8212; документация Transit Delay Predictor </title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=372fde1a"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/translations.js?v=cd1d70c9"></script>
+    <link rel="index" title="Алфавитный указатель" href="genindex.html" />
+    <link rel="search" title="Поиск" href="search.html" />
+    <link rel="next" title="ML-ядро (пакет ml)" href="ml.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="id1">
+<h1>Предиктор изменений в графике транспорта<a class="headerlink" href="#id1" title="Ссылка на этот заголовок">¶</a></h1>
+<p>Документация по коду. Спецификация HTTP API ML-сервиса (OpenAPI/Swagger) генерируется
+FastAPI автоматически: <code class="docutils literal notranslate"><span class="pre">http://&lt;ml-service&gt;:8001/docs</span></code> и <code class="docutils literal notranslate"><span class="pre">/openapi.json</span></code>.</p>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="ml.html">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.data">Данные</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.schedule">Расписание</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.telemetry">Телеметрия и детектор прибытий</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.features">Признаки</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.compact">Продовая компактная модель</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.explain_eval">Проверки объяснимости</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.labels">Разметка, дообучение, реестр</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.degradation">Надёжность</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.models">Модели и валидация</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.nn">Нейросеть (PyTorch)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.train">Обучение и сабмит</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.predictor">Инференс</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.explain">Объяснения</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ml.html#module-ml.online">Онлайн-состояние</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="ndtp.html">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="ndtp.html#module-ndtp.protocol">Кодек</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ndtp.html#module-ndtp.server">TCP-сервер</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ndtp.html#module-ndtp.replay">Реплеер исторических данных</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="service.html">ML-сервис (FastAPI)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.NavRecordIn"><code class="docutils literal notranslate"><span class="pre">NavRecordIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.ScheduleIn"><code class="docutils literal notranslate"><span class="pre">ScheduleIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.PointIn"><code class="docutils literal notranslate"><span class="pre">PointIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.WhatIfIn"><code class="docutils literal notranslate"><span class="pre">WhatIfIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.health"><code class="docutils literal notranslate"><span class="pre">health()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.model_info"><code class="docutils literal notranslate"><span class="pre">model_info()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.reload_model"><code class="docutils literal notranslate"><span class="pre">reload_model()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.load_schedule"><code class="docutils literal notranslate"><span class="pre">load_schedule()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.ingest"><code class="docutils literal notranslate"><span class="pre">ingest()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.predictions"><code class="docutils literal notranslate"><span class="pre">predictions()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.predict"><code class="docutils literal notranslate"><span class="pre">predict()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="service.html#services.ml_service.app.whatif"><code class="docutils literal notranslate"><span class="pre">whatif()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="backend.html">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.config.Settings"><code class="docutils literal notranslate"><span class="pre">Settings</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.schedule.Schedule"><code class="docutils literal notranslate"><span class="pre">Schedule</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.ml_client.MLUnavailable"><code class="docutils literal notranslate"><span class="pre">MLUnavailable</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.ml_client.CircuitBreaker"><code class="docutils literal notranslate"><span class="pre">CircuitBreaker</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.ml_client.MLClient"><code class="docutils literal notranslate"><span class="pre">MLClient</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.state.Vehicle"><code class="docutils literal notranslate"><span class="pre">Vehicle</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.state.Alert"><code class="docutils literal notranslate"><span class="pre">Alert</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.state.Store"><code class="docutils literal notranslate"><span class="pre">Store</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.alerts.alert_card"><code class="docutils literal notranslate"><span class="pre">alert_card()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.alerts.update_alerts"><code class="docutils literal notranslate"><span class="pre">update_alerts()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.worker.Worker"><code class="docutils literal notranslate"><span class="pre">Worker</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.api.NavRecordIn"><code class="docutils literal notranslate"><span class="pre">NavRecordIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.api.VehicleOut"><code class="docutils literal notranslate"><span class="pre">VehicleOut</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.api.AlertOut"><code class="docutils literal notranslate"><span class="pre">AlertOut</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.api.WhatIfIn"><code class="docutils literal notranslate"><span class="pre">WhatIfIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.api.ReplayIn"><code class="docutils literal notranslate"><span class="pre">ReplayIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.api.EmulatorIn"><code class="docutils literal notranslate"><span class="pre">EmulatorIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="backend.html#backend.api.ws"><code class="docutils literal notranslate"><span class="pre">ws()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="#">Transit Delay Predictor</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Искать" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Навигация</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="ml.html">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ndtp.html">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="service.html">ML-сервис (FastAPI)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="backend.html">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="#">Documentation overview</a><ul>
+      <li>Next: <a href="ml.html" title="следующая глава">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/index.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Диспетчерская: прогноз отклонений</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Прогноз отклонений от графика</h1>
+      <span class="sub">горизонт 10–15 мин · телеметрия NDTP</span>
+    </div>
+    <div class="status" id="status">
+      <span class="chip" id="chip-time" title="Время потока (МСК)">—</span>
+      <span class="chip" id="chip-ml" title="Состояние ML-сервиса">ML: —</span>
+      <span class="chip" id="chip-stream" title="Принято пакетов / циклов прогноза">—</span>
+    </div>
+    <div class="controls">
+      <label>Реплей дня
+        <select id="replay-speed" title="Ускорение времени">
+          <option value="60">×60</option><option value="120" selected>×120</option><option value="300">×300</option>
+        </select>
+      </label>
+      <button id="btn-replay" class="btn">▶ Запустить</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="mapwrap">
+      <div id="map" aria-label="Карта ТС и маршрутов"></div>
+      <div class="legend" aria-label="Легенда рисков">
+        <div class="legend-title">Риск на горизонте 10–15 мин</div>
+        <div><span class="dot risk-green"></span>● Норма</div>
+        <div><span class="dot risk-yellow"></span>▲ Внимание</div>
+        <div><span class="dot risk-red"></span>■ Критично</div>
+        <div><span class="dot risk-unknown"></span>○ Нет прогноза</div>
+        <div><span class="dot risk-lost"></span>✕ Нет связи</div>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="alerts" role="tab">Инциденты <span id="alerts-count" class="count">0</span></button>
+        <button class="tab" data-tab="card" role="tab">Карточка</button>
+        <button class="tab" data-tab="vehicles" role="tab">ТС</button>
+        <button class="tab" data-tab="metrics" role="tab">Метрики</button>
+      </nav>
+
+      <div class="tabpane active" id="tab-alerts">
+        <p class="hint" id="alerts-empty">Активных инцидентов нет. Запустите реплей дня или подайте поток с эмулятора.</p>
+        <ul class="alerts" id="alerts"></ul>
+      </div>
+
+      <div class="tabpane" id="tab-card">
+        <p class="hint" id="card-empty">Выберите инцидент или ТС на карте.</p>
+        <div id="card"></div>
+      </div>
+
+      <div class="tabpane" id="tab-vehicles">
+        <table class="table" id="vehicles-table">
+          <thead><tr><th>ТС</th><th>Риск</th><th>Прогноз</th><th>P(&gt;2 мин)</th><th>Связь</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="tabpane" id="tab-metrics">
+        <div id="metrics"></div>
+      </div>
+    </aside>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

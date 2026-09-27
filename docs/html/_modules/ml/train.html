@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+
+<html lang="ru" data-content_root="../../">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ml.train &#8212; документация Transit Delay Predictor </title>
+    <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="../../_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="../../_static/alabaster.css?v=27fed22d" />
+    <script src="../../_static/documentation_options.js?v=372fde1a"></script>
+    <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/translations.js?v=cd1d70c9"></script>
+    <link rel="index" title="Алфавитный указатель" href="../../genindex.html" />
+    <link rel="search" title="Поиск" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Исходный код ml.train</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Обучение финального ансамбля, CV-отчёт и формирование ``submission.csv``.</span>
+
+<span class="sd">Запуск::</span>
+
+<span class="sd">    python -m ml.train --cv          # leave-one-vehicle-out CV + отчёт в reports/</span>
+<span class="sd">    python -m ml.train --fit --submit  # финальные модели + submission по validate</span>
+
+<span class="sd">Ансамбль: LightGBM (L1, несколько сидов) + CatBoost (MAE) [+ GRU/MLP, если</span>
+<span class="sd">включена], веса подбираются по out-of-fold MAE. Дополнительно обучаются</span>
+<span class="sd">вспомогательные модели для дашборда: квантили q10/q90 (интервал прогноза) и</span>
+<span class="sd">классификатор P(опоздание &gt; 120 c).</span>
+<span class="sd">"""</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">argparse</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">itertools</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">ART_DIR</span><span class="p">,</span> <span class="n">get_all</span><span class="p">,</span> <span class="n">get_all_sequences</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">DATA_DIR</span><span class="p">,</span> <span class="n">base_vehicle_map</span><span class="p">,</span> <span class="n">load_schedule_plan</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">feature_columns</span><span class="p">,</span> <span class="n">fit_cat</span><span class="p">,</span> <span class="n">fit_lgb</span><span class="p">,</span> <span class="n">lgb_params</span><span class="p">,</span> <span class="n">mae</span><span class="p">,</span> <span class="n">score</span>
+
+<span class="n">ROOT</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">resolve</span><span class="p">()</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span>
+<span class="n">MODEL_DIR</span> <span class="o">=</span> <span class="n">ART_DIR</span> <span class="o">/</span> <span class="s2">"models"</span>
+<span class="n">REPORT_DIR</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s2">"reports"</span>
+<span class="n">SUB_DIR</span> <span class="o">=</span> <span class="n">ROOT</span> <span class="o">/</span> <span class="s2">"submissions"</span>
+
+<span class="n">LATE_S</span> <span class="o">=</span> <span class="mf">120.0</span>  <span class="c1"># порог «опоздания» (как target_class в разметке)</span>
+<span class="n">EARLY_S</span> <span class="o">=</span> <span class="o">-</span><span class="mf">60.0</span>
+<span class="c1">#: Сжатие прогноза для целей «старт рейса» (вложенная проверка по ТС: -0.89 MAE, 20/20 разбиений)</span>
+<span class="n">TRIP_START_ALPHA</span> <span class="o">=</span> <span class="mf">0.15</span>
+
+<span class="n">CONFIG</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"lgb_seeds"</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">],</span>
+    <span class="s2">"lgb_rounds"</span><span class="p">:</span> <span class="mi">500</span><span class="p">,</span>
+    <span class="s2">"cat_seeds"</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">],</span>
+    <span class="s2">"cat_iters"</span><span class="p">:</span> <span class="mi">1000</span><span class="p">,</span>
+    <span class="s2">"nn_seeds"</span><span class="p">:</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">],</span>
+    <span class="s2">"nn_epochs"</span><span class="p">:</span> <span class="mi">60</span><span class="p">,</span>
+    <span class="s2">"use_nn"</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="s2">"syn_weight"</span><span class="p">:</span> <span class="mf">1.0</span><span class="p">,</span>
+<span class="p">}</span>
+
+
+<span class="c1"># ------------------------------------------------------------------ данные</span>
+
+
+<div class="viewcode-block" id="load_table">
+<a class="viewcode-back" href="../../ml.html#ml.train.load_table">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_table</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">"""Признаки всех сплитов + базовое ТС (для групп CV) + окна для NN."""</span>
+    <span class="n">df</span> <span class="o">=</span> <span class="n">get_all</span><span class="p">()</span>
+    <span class="n">bm</span> <span class="o">=</span> <span class="n">base_vehicle_map</span><span class="p">(</span><span class="n">load_schedule_plan</span><span class="p">(</span><span class="s2">"train"</span><span class="p">))</span>
+    <span class="n">df</span><span class="p">[</span><span class="s2">"base_tr"</span><span class="p">]</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="s2">"tr_id"</span><span class="p">]</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">bm</span><span class="p">)</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">"tr_id"</span><span class="p">])</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">)</span>
+    <span class="n">seq</span> <span class="o">=</span> <span class="n">get_all_sequences</span><span class="p">()</span> <span class="k">if</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"use_nn"</span><span class="p">]</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="k">return</span> <span class="n">df</span><span class="p">,</span> <span class="n">seq</span></div>
+
+
+
+<span class="c1"># ------------------------------------------------------------------ модели</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_fit_predict_family</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">tr_df</span><span class="p">,</span> <span class="n">te_df</span><span class="p">,</span> <span class="n">feats</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">seq_tr</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">seq_te</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Обучает семейство моделей (все сиды) и возвращает средний прогноз."""</span>
+    <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"lgb"</span><span class="p">:</span>
+        <span class="n">ms</span> <span class="o">=</span> <span class="p">[</span><span class="n">fit_lgb</span><span class="p">(</span><span class="n">tr_df</span><span class="p">[</span><span class="n">feats</span><span class="p">],</span> <span class="n">y</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">lgb_params</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="n">s</span><span class="p">),</span> <span class="n">n_rounds</span><span class="o">=</span><span class="n">CONFIG</span><span class="p">[</span><span class="s2">"lgb_rounds"</span><span class="p">])</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"lgb_seeds"</span><span class="p">]]</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">m</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">te_df</span><span class="p">[</span><span class="n">feats</span><span class="p">])</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">ms</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">ms</span>
+    <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"cat"</span><span class="p">:</span>
+        <span class="n">ms</span> <span class="o">=</span> <span class="p">[</span><span class="n">fit_cat</span><span class="p">(</span><span class="n">tr_df</span><span class="p">[</span><span class="n">feats</span><span class="p">],</span> <span class="n">y</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">iterations</span><span class="o">=</span><span class="n">CONFIG</span><span class="p">[</span><span class="s2">"cat_iters"</span><span class="p">],</span> <span class="n">random_seed</span><span class="o">=</span><span class="n">s</span><span class="p">))</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"cat_seeds"</span><span class="p">]]</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">m</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">te_df</span><span class="p">[</span><span class="n">feats</span><span class="p">])</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">ms</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="n">ms</span>
+    <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">"nn"</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.nn</span><span class="w"> </span><span class="kn">import</span> <span class="n">TabScaler</span><span class="p">,</span> <span class="n">fit_nn</span><span class="p">,</span> <span class="n">predict_nn</span>
+
+        <span class="n">sc</span> <span class="o">=</span> <span class="n">TabScaler</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">tr_df</span><span class="p">,</span> <span class="n">feats</span><span class="p">)</span>
+        <span class="n">xtr</span><span class="p">,</span> <span class="n">xte</span> <span class="o">=</span> <span class="n">sc</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">tr_df</span><span class="p">),</span> <span class="n">sc</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">te_df</span><span class="p">)</span>
+        <span class="n">ms</span> <span class="o">=</span> <span class="p">[</span><span class="n">fit_nn</span><span class="p">(</span><span class="n">seq_tr</span><span class="p">,</span> <span class="n">xtr</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">),</span> <span class="n">w</span><span class="p">,</span> <span class="n">epochs</span><span class="o">=</span><span class="n">CONFIG</span><span class="p">[</span><span class="s2">"nn_epochs"</span><span class="p">],</span> <span class="n">seed</span><span class="o">=</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"nn_seeds"</span><span class="p">]]</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">mean</span><span class="p">([</span><span class="n">predict_nn</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">seq_te</span><span class="p">,</span> <span class="n">xte</span><span class="p">)</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">ms</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">),</span> <span class="p">(</span><span class="n">sc</span><span class="p">,</span> <span class="n">ms</span><span class="p">)</span>
+    <span class="k">raise</span> <span class="ne">ValueError</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">families</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+    <span class="k">return</span> <span class="p">[</span><span class="s2">"lgb"</span><span class="p">,</span> <span class="s2">"cat"</span><span class="p">]</span> <span class="o">+</span> <span class="p">([</span><span class="s2">"nn"</span><span class="p">]</span> <span class="k">if</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"use_nn"</span><span class="p">]</span> <span class="k">else</span> <span class="p">[])</span>
+
+
+<div class="viewcode-block" id="best_blend">
+<a class="viewcode-back" href="../../ml.html#ml.train.best_blend">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">best_blend</span><span class="p">(</span><span class="n">oofs</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">],</span> <span class="n">y</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">step</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.05</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Веса смеси на симплексе, минимизирующие OOF MAE (перебор по сетке)."""</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">oofs</span><span class="p">)</span>
+    <span class="n">grid</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span> <span class="o">+</span> <span class="mf">1e-9</span><span class="p">,</span> <span class="n">step</span><span class="p">)</span>
+    <span class="n">best</span><span class="p">,</span> <span class="n">best_w</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">,</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">ws</span> <span class="ow">in</span> <span class="n">itertools</span><span class="o">.</span><span class="n">product</span><span class="p">(</span><span class="n">grid</span><span class="p">,</span> <span class="n">repeat</span><span class="o">=</span><span class="nb">len</span><span class="p">(</span><span class="n">names</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">sum</span><span class="p">(</span><span class="n">ws</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span> <span class="o">+</span> <span class="mf">1e-9</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">w</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">ws</span><span class="p">)</span> <span class="o">+</span> <span class="p">[</span><span class="mi">1</span> <span class="o">-</span> <span class="nb">sum</span><span class="p">(</span><span class="n">ws</span><span class="p">)]</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">wi</span> <span class="o">*</span> <span class="n">oofs</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="k">for</span> <span class="n">wi</span><span class="p">,</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">w</span><span class="p">,</span> <span class="n">names</span><span class="p">))</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">mae</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">p</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">m</span> <span class="o">&lt;</span> <span class="n">best</span><span class="p">:</span>
+            <span class="n">best</span><span class="p">,</span> <span class="n">best_w</span> <span class="o">=</span> <span class="n">m</span><span class="p">,</span> <span class="n">w</span>
+    <span class="k">return</span> <span class="p">{</span><span class="n">n</span><span class="p">:</span> <span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">wi</span><span class="p">),</span> <span class="mi">3</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">wi</span> <span class="ow">in</span> <span class="nb">zip</span><span class="p">(</span><span class="n">names</span><span class="p">,</span> <span class="n">best_w</span><span class="p">)}</span></div>
+
+
+
+<span class="c1"># ------------------------------------------------------------------ CV</span>
+
+
+<div class="viewcode-block" id="run_cv_report">
+<a class="viewcode-back" href="../../ml.html#ml.train.run_cv_report">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">run_cv_report</span><span class="p">(</span><span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">seq</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Leave-one-vehicle-out CV всех семейств, подбор весов, отчёт по сегментам."""</span>
+    <span class="n">lab_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">"split"</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">"validate"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+    <span class="n">lab</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">lab_mask</span><span class="p">]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">lseq</span> <span class="o">=</span> <span class="n">seq</span><span class="p">[</span><span class="n">lab_mask</span><span class="p">]</span> <span class="k">if</span> <span class="n">seq</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">feats</span> <span class="o">=</span> <span class="n">feature_columns</span><span class="p">(</span><span class="n">lab</span><span class="p">)</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">lab</span><span class="p">[</span><span class="s2">"y"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+    <span class="n">w</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="s2">"is_synthetic"</span><span class="p">],</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"syn_weight"</span><span class="p">],</span> <span class="mf">1.0</span><span class="p">)</span>
+    <span class="n">real</span> <span class="o">=</span> <span class="o">~</span><span class="n">lab</span><span class="p">[</span><span class="s2">"is_synthetic"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+    <span class="n">oofs</span> <span class="o">=</span> <span class="p">{</span><span class="n">n</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">lab</span><span class="p">),</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">families</span><span class="p">()}</span>
+    <span class="n">t0</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="s2">"base_tr"</span><span class="p">]</span><span class="o">.</span><span class="n">unique</span><span class="p">()):</span>
+        <span class="n">te</span> <span class="o">=</span> <span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="s2">"base_tr"</span><span class="p">]</span> <span class="o">==</span> <span class="n">g</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span> <span class="o">&amp;</span> <span class="n">real</span>
+        <span class="n">tr</span> <span class="o">=</span> <span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="s2">"base_tr"</span><span class="p">]</span> <span class="o">!=</span> <span class="n">g</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">te</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">families</span><span class="p">():</span>
+            <span class="n">p</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">_fit_predict_family</span><span class="p">(</span>
+                <span class="n">n</span><span class="p">,</span> <span class="n">lab</span><span class="p">[</span><span class="n">tr</span><span class="p">],</span> <span class="n">lab</span><span class="p">[</span><span class="n">te</span><span class="p">],</span> <span class="n">feats</span><span class="p">,</span> <span class="n">y</span><span class="p">[</span><span class="n">tr</span><span class="p">],</span> <span class="n">w</span><span class="p">[</span><span class="n">tr</span><span class="p">],</span>
+                <span class="n">lseq</span><span class="p">[</span><span class="n">tr</span><span class="p">]</span> <span class="k">if</span> <span class="n">lseq</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span> <span class="n">lseq</span><span class="p">[</span><span class="n">te</span><span class="p">]</span> <span class="k">if</span> <span class="n">lseq</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="n">oofs</span><span class="p">[</span><span class="n">n</span><span class="p">][</span><span class="n">te</span><span class="p">]</span> <span class="o">=</span> <span class="n">p</span>
+        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"[cv] fold base_tr=</span><span class="si">{</span><span class="n">g</span><span class="si">}</span><span class="s2"> готов (</span><span class="si">{</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="w"> </span><span class="o">-</span><span class="w"> </span><span class="n">t0</span><span class="si">:</span><span class="s2">.0f</span><span class="si">}</span><span class="s2"> c)"</span><span class="p">)</span>
+    <span class="n">yr</span> <span class="o">=</span> <span class="n">y</span><span class="p">[</span><span class="n">real</span><span class="p">]</span>
+    <span class="n">blend_w</span> <span class="o">=</span> <span class="n">best_blend</span><span class="p">({</span><span class="n">n</span><span class="p">:</span> <span class="n">o</span><span class="p">[</span><span class="n">real</span><span class="p">]</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">oofs</span><span class="o">.</span><span class="n">items</span><span class="p">()},</span> <span class="n">yr</span><span class="p">)</span>
+    <span class="n">blend</span> <span class="o">=</span> <span class="nb">sum</span><span class="p">(</span><span class="n">blend_w</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="o">*</span> <span class="n">oofs</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">oofs</span><span class="p">)</span>
+    <span class="n">te_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="s2">"split"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"test"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">seg_table</span><span class="p">(</span><span class="n">pred</span><span class="p">):</span>
+        <span class="n">rows</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">lab</span><span class="p">[</span><span class="n">real</span><span class="p">]</span><span class="o">.</span><span class="n">assign</span><span class="p">(</span><span class="n">p</span><span class="o">=</span><span class="n">pred</span><span class="p">[</span><span class="n">real</span><span class="p">])</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">m</span> <span class="ow">in</span> <span class="p">{</span>
+            <span class="s2">"все реальные"</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">d</span><span class="p">),</span> <span class="nb">bool</span><span class="p">),</span>
+            <span class="s2">"только test"</span><span class="p">:</span> <span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s2">"split"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"test"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"без отстоя на пути"</span><span class="p">:</span> <span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s2">"n_trip_starts_path"</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"с отстоем на пути"</span><span class="p">:</span> <span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s2">"n_trip_starts_path"</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"цель = старт рейса"</span><span class="p">:</span> <span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s2">"tgt_is_trip_start"</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+            <span class="s2">"GPS деградирован (valid_15m&lt;0.5)"</span><span class="p">:</span> <span class="p">(</span><span class="n">d</span><span class="p">[</span><span class="s2">"valid_share_15m"</span><span class="p">]</span><span class="o">.</span><span class="n">fillna</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mf">0.5</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span>
+        <span class="p">}</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">dd</span> <span class="o">=</span> <span class="n">d</span><span class="p">[</span><span class="n">m</span><span class="p">]</span>
+            <span class="n">rows</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">"n"</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">dd</span><span class="p">)),</span>
+                <span class="s2">"mae_zero"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">dd</span><span class="p">[</span><span class="s2">"y"</span><span class="p">],</span> <span class="mi">0</span><span class="p">),</span>
+                <span class="s2">"mae_cur_dev"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">dd</span><span class="p">[</span><span class="s2">"y"</span><span class="p">],</span> <span class="n">dd</span><span class="p">[</span><span class="s2">"cur_dev_s"</span><span class="p">]),</span>
+                <span class="s2">"mae_model"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">dd</span><span class="p">[</span><span class="s2">"y"</span><span class="p">],</span> <span class="n">dd</span><span class="p">[</span><span class="s2">"p"</span><span class="p">]),</span>
+            <span class="p">}</span>
+        <span class="k">return</span> <span class="n">rows</span>
+
+    <span class="n">rep</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"features"</span><span class="p">:</span> <span class="n">feats</span><span class="p">,</span>
+        <span class="s2">"n_features"</span><span class="p">:</span> <span class="nb">len</span><span class="p">(</span><span class="n">feats</span><span class="p">),</span>
+        <span class="s2">"cv"</span><span class="p">:</span> <span class="s2">"leave-one-vehicle-out (реальное ТС + его синтетические копии в одном фолде), метрика по реальным ТС"</span><span class="p">,</span>
+        <span class="s2">"families"</span><span class="p">:</span> <span class="p">{</span>
+            <span class="n">n</span><span class="p">:</span> <span class="p">{</span><span class="s2">"mae_real"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">yr</span><span class="p">,</span> <span class="n">o</span><span class="p">[</span><span class="n">real</span><span class="p">]),</span> <span class="s2">"mae_test"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="n">te_mask</span><span class="p">],</span> <span class="n">o</span><span class="p">[</span><span class="n">te_mask</span><span class="p">])}</span> <span class="k">for</span> <span class="n">n</span><span class="p">,</span> <span class="n">o</span> <span class="ow">in</span> <span class="n">oofs</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="p">},</span>
+        <span class="s2">"blend_weights"</span><span class="p">:</span> <span class="n">blend_w</span><span class="p">,</span>
+        <span class="s2">"blend"</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">"mae_real"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">yr</span><span class="p">,</span> <span class="n">blend</span><span class="p">[</span><span class="n">real</span><span class="p">]),</span>
+            <span class="s2">"mae_test"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="n">te_mask</span><span class="p">],</span> <span class="n">blend</span><span class="p">[</span><span class="n">te_mask</span><span class="p">]),</span>
+            <span class="s2">"score_test_est"</span><span class="p">:</span> <span class="n">score</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="n">te_mask</span><span class="p">],</span> <span class="n">blend</span><span class="p">[</span><span class="n">te_mask</span><span class="p">]),</span>
+            <span class="s2">"score_real_est"</span><span class="p">:</span> <span class="n">score</span><span class="p">(</span><span class="n">yr</span><span class="p">,</span> <span class="n">blend</span><span class="p">[</span><span class="n">real</span><span class="p">]),</span>
+        <span class="p">},</span>
+        <span class="s2">"baselines"</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">"zero"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"mae_real"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">yr</span><span class="p">,</span> <span class="mi">0</span><span class="p">),</span> <span class="s2">"mae_test"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="n">te_mask</span><span class="p">],</span> <span class="mi">0</span><span class="p">)},</span>
+            <span class="s2">"cur_dev_s"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"mae_real"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">yr</span><span class="p">,</span> <span class="n">lab</span><span class="p">[</span><span class="s2">"cur_dev_s"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()[</span><span class="n">real</span><span class="p">]),</span> <span class="s2">"mae_test"</span><span class="p">:</span> <span class="n">mae</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="n">te_mask</span><span class="p">],</span> <span class="n">lab</span><span class="p">[</span><span class="s2">"cur_dev_s"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()[</span><span class="n">te_mask</span><span class="p">]),</span>
+                          <span class="s2">"score_test_est"</span><span class="p">:</span> <span class="n">score</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="n">te_mask</span><span class="p">],</span> <span class="n">lab</span><span class="p">[</span><span class="s2">"cur_dev_s"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()[</span><span class="n">te_mask</span><span class="p">])},</span>
+        <span class="p">},</span>
+        <span class="s2">"segments"</span><span class="p">:</span> <span class="n">seg_table</span><span class="p">(</span><span class="n">blend</span><span class="p">),</span>
+    <span class="p">}</span>
+    <span class="n">REPORT_DIR</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="p">(</span><span class="n">REPORT_DIR</span> <span class="o">/</span> <span class="s2">"cv_report.json"</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">rep</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
+    <span class="n">lab</span><span class="o">.</span><span class="n">assign</span><span class="p">(</span><span class="n">oof</span><span class="o">=</span><span class="n">blend</span><span class="p">)[[</span><span class="s2">"sample_id"</span><span class="p">,</span> <span class="s2">"tr_id"</span><span class="p">,</span> <span class="s2">"split"</span><span class="p">,</span> <span class="s2">"is_synthetic"</span><span class="p">,</span> <span class="s2">"y"</span><span class="p">,</span> <span class="s2">"cur_dev_s"</span><span class="p">,</span> <span class="s2">"oof"</span><span class="p">]]</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">REPORT_DIR</span> <span class="o">/</span> <span class="s2">"cv_oof.csv"</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">rep</span></div>
+
+
+
+<span class="c1"># ------------------------------------------------------------------ финальное обучение</span>
+
+
+<div class="viewcode-block" id="fit_final">
+<a class="viewcode-back" href="../../ml.html#ml.train.fit_final">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">fit_final</span><span class="p">(</span><span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">,</span> <span class="n">seq</span><span class="p">,</span> <span class="n">blend_w</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">float</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Обучает финальные модели на всей разметке (train+test) и сохраняет артефакты."""</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">lightgbm</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">lgb</span>
+
+    <span class="n">MODEL_DIR</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">lab_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">df</span><span class="p">[</span><span class="s2">"split"</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">"validate"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+    <span class="n">lab</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">lab_mask</span><span class="p">]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">feats</span> <span class="o">=</span> <span class="n">feature_columns</span><span class="p">(</span><span class="n">lab</span><span class="p">)</span>
+    <span class="n">y</span> <span class="o">=</span> <span class="n">lab</span><span class="p">[</span><span class="s2">"y"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()</span>
+    <span class="n">w</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="s2">"is_synthetic"</span><span class="p">],</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"syn_weight"</span><span class="p">],</span> <span class="mf">1.0</span><span class="p">)</span>
+    <span class="n">meta</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"features"</span><span class="p">:</span> <span class="n">feats</span><span class="p">,</span>
+        <span class="s2">"blend_weights"</span><span class="p">:</span> <span class="n">blend_w</span><span class="p">,</span>
+        <span class="s2">"config"</span><span class="p">:</span> <span class="n">CONFIG</span><span class="p">,</span>
+        <span class="s2">"models"</span><span class="p">:</span> <span class="p">{},</span>
+        <span class="s2">"postprocess"</span><span class="p">:</span> <span class="p">{</span><span class="s2">"trip_start_alpha"</span><span class="p">:</span> <span class="n">TRIP_START_ALPHA</span><span class="p">},</span>
+    <span class="p">}</span>
+    <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"lgb_seeds"</span><span class="p">]:</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">fit_lgb</span><span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="n">feats</span><span class="p">],</span> <span class="n">y</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">lgb_params</span><span class="p">(</span><span class="n">seed</span><span class="o">=</span><span class="n">s</span><span class="p">),</span> <span class="n">n_rounds</span><span class="o">=</span><span class="n">CONFIG</span><span class="p">[</span><span class="s2">"lgb_rounds"</span><span class="p">])</span>
+        <span class="n">m</span><span class="o">.</span><span class="n">save_model</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"lgb_s</span><span class="si">{</span><span class="n">s</span><span class="si">}</span><span class="s2">.txt"</span><span class="p">))</span>
+        <span class="n">meta</span><span class="p">[</span><span class="s2">"models"</span><span class="p">]</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">"lgb"</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"lgb_s</span><span class="si">{</span><span class="n">s</span><span class="si">}</span><span class="s2">.txt"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">blend_w</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"cat"</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"cat_seeds"</span><span class="p">]:</span>
+            <span class="n">m</span> <span class="o">=</span> <span class="n">fit_cat</span><span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="n">feats</span><span class="p">],</span> <span class="n">y</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">iterations</span><span class="o">=</span><span class="n">CONFIG</span><span class="p">[</span><span class="s2">"cat_iters"</span><span class="p">],</span> <span class="n">random_seed</span><span class="o">=</span><span class="n">s</span><span class="p">))</span>
+            <span class="n">m</span><span class="o">.</span><span class="n">save_model</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"cat_s</span><span class="si">{</span><span class="n">s</span><span class="si">}</span><span class="s2">.cbm"</span><span class="p">))</span>
+            <span class="k">try</span><span class="p">:</span>  <span class="c1"># ONNX-версия для быстрого инференса без зависимостей catboost</span>
+                <span class="n">m</span><span class="o">.</span><span class="n">save_model</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"cat_s</span><span class="si">{</span><span class="n">s</span><span class="si">}</span><span class="s2">.onnx"</span><span class="p">),</span> <span class="nb">format</span><span class="o">=</span><span class="s2">"onnx"</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>  <span class="c1"># noqa: BLE001</span>
+                <span class="nb">print</span><span class="p">(</span><span class="s2">"[fit] ONNX-экспорт CatBoost не удался:"</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+            <span class="n">meta</span><span class="p">[</span><span class="s2">"models"</span><span class="p">]</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">"cat"</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"cat_s</span><span class="si">{</span><span class="n">s</span><span class="si">}</span><span class="s2">.cbm"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"use_nn"</span><span class="p">]</span> <span class="ow">and</span> <span class="n">blend_w</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"nn"</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.nn</span><span class="w"> </span><span class="kn">import</span> <span class="n">TabScaler</span><span class="p">,</span> <span class="n">fit_nn</span>
+
+        <span class="n">lseq</span> <span class="o">=</span> <span class="n">seq</span><span class="p">[</span><span class="n">lab_mask</span><span class="p">]</span>
+        <span class="n">sc</span> <span class="o">=</span> <span class="n">TabScaler</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">lab</span><span class="p">,</span> <span class="n">feats</span><span class="p">)</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">sc</span><span class="o">.</span><span class="n">transform</span><span class="p">(</span><span class="n">lab</span><span class="p">)</span>
+        <span class="n">json</span><span class="o">.</span><span class="n">dump</span><span class="p">({</span><span class="s2">"cols"</span><span class="p">:</span> <span class="n">sc</span><span class="o">.</span><span class="n">cols</span><span class="p">,</span> <span class="s2">"med"</span><span class="p">:</span> <span class="n">sc</span><span class="o">.</span><span class="n">med</span><span class="o">.</span><span class="n">tolist</span><span class="p">(),</span> <span class="s2">"iqr"</span><span class="p">:</span> <span class="n">sc</span><span class="o">.</span><span class="n">iqr</span><span class="o">.</span><span class="n">tolist</span><span class="p">()},</span> <span class="nb">open</span><span class="p">(</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="s2">"nn_scaler.json"</span><span class="p">,</span> <span class="s2">"w"</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"nn_seeds"</span><span class="p">]:</span>
+            <span class="n">m</span> <span class="o">=</span> <span class="n">fit_nn</span><span class="p">(</span><span class="n">lseq</span><span class="p">,</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="s2">"float32"</span><span class="p">),</span> <span class="n">w</span><span class="p">,</span> <span class="n">epochs</span><span class="o">=</span><span class="n">CONFIG</span><span class="p">[</span><span class="s2">"nn_epochs"</span><span class="p">],</span> <span class="n">seed</span><span class="o">=</span><span class="n">s</span><span class="p">)</span>
+            <span class="n">torch</span><span class="o">.</span><span class="n">save</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">state_dict</span><span class="p">(),</span> <span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"nn_s</span><span class="si">{</span><span class="n">s</span><span class="si">}</span><span class="s2">.pt"</span><span class="p">)</span>
+            <span class="n">meta</span><span class="p">[</span><span class="s2">"models"</span><span class="p">]</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="s2">"nn"</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"nn_s</span><span class="si">{</span><span class="n">s</span><span class="si">}</span><span class="s2">.pt"</span><span class="p">)</span>
+    <span class="c1"># вспомогательные модели для дашборда</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">params</span> <span class="ow">in</span> <span class="p">{</span>
+        <span class="s2">"q10"</span><span class="p">:</span> <span class="n">lgb_params</span><span class="p">(</span><span class="n">objective</span><span class="o">=</span><span class="s2">"quantile"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.1</span><span class="p">),</span>
+        <span class="s2">"q90"</span><span class="p">:</span> <span class="n">lgb_params</span><span class="p">(</span><span class="n">objective</span><span class="o">=</span><span class="s2">"quantile"</span><span class="p">,</span> <span class="n">alpha</span><span class="o">=</span><span class="mf">0.9</span><span class="p">),</span>
+    <span class="p">}</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">fit_lgb</span><span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="n">feats</span><span class="p">],</span> <span class="n">y</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">params</span><span class="p">,</span> <span class="n">n_rounds</span><span class="o">=</span><span class="mi">400</span><span class="p">)</span><span class="o">.</span><span class="n">save_model</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"lgb_</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.txt"</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">thr</span> <span class="ow">in</span> <span class="p">{</span><span class="s2">"p_late"</span><span class="p">:</span> <span class="n">LATE_S</span><span class="p">}</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+        <span class="n">clf</span> <span class="o">=</span> <span class="n">lgb</span><span class="o">.</span><span class="n">train</span><span class="p">(</span>
+            <span class="n">lgb_params</span><span class="p">(</span><span class="n">objective</span><span class="o">=</span><span class="s2">"binary"</span><span class="p">,</span> <span class="n">metric</span><span class="o">=</span><span class="s2">"binary_logloss"</span><span class="p">),</span>
+            <span class="n">lgb</span><span class="o">.</span><span class="n">Dataset</span><span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="n">feats</span><span class="p">],</span> <span class="p">(</span><span class="n">y</span> <span class="o">&gt;</span> <span class="n">thr</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="nb">int</span><span class="p">),</span> <span class="n">weight</span><span class="o">=</span><span class="n">w</span><span class="p">),</span>
+            <span class="n">num_boost_round</span><span class="o">=</span><span class="mi">300</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">clf</span><span class="o">.</span><span class="n">save_model</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"lgb_</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.txt"</span><span class="p">))</span>
+    <span class="p">(</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="s2">"meta.json"</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">meta</span><span class="p">,</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">meta</span></div>
+
+
+
+<div class="viewcode-block" id="fit_error_model">
+<a class="viewcode-back" href="../../ml.html#ml.train.fit_error_model">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">fit_error_model</span><span class="p">(</span><span class="n">df</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Модель ожидаемой абсолютной ошибки прогноза ``E|y - ŷ|`` по OOF-остаткам.</span>
+
+<span class="sd">    Учится на out-of-fold прогнозах ансамбля (``reports/cv_oof.csv``), поэтому</span>
+<span class="sd">    оценивает ошибку честно — как на невиданных данных. Используется</span>
+<span class="sd">    дашбордом как «ожидаемая точность» конкретного прогноза.</span>
+<span class="sd">    """</span>
+    <span class="n">oof</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">REPORT_DIR</span> <span class="o">/</span> <span class="s2">"cv_oof.csv"</span><span class="p">)</span>
+    <span class="n">lab</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="p">[</span><span class="s2">"split"</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">"validate"</span><span class="p">]</span><span class="o">.</span><span class="n">merge</span><span class="p">(</span><span class="n">oof</span><span class="p">[[</span><span class="s2">"sample_id"</span><span class="p">,</span> <span class="s2">"oof"</span><span class="p">]],</span> <span class="n">on</span><span class="o">=</span><span class="s2">"sample_id"</span><span class="p">)</span>
+    <span class="n">lab</span> <span class="o">=</span> <span class="n">lab</span><span class="p">[</span><span class="n">lab</span><span class="p">[</span><span class="s2">"oof"</span><span class="p">]</span><span class="o">.</span><span class="n">notna</span><span class="p">()]</span>
+    <span class="n">feats</span> <span class="o">=</span> <span class="n">feature_columns</span><span class="p">(</span><span class="n">lab</span><span class="o">.</span><span class="n">drop</span><span class="p">(</span><span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">"oof"</span><span class="p">]))</span>
+    <span class="n">X</span> <span class="o">=</span> <span class="n">lab</span><span class="p">[</span><span class="n">feats</span><span class="p">]</span><span class="o">.</span><span class="n">assign</span><span class="p">(</span><span class="n">delay_pred</span><span class="o">=</span><span class="n">lab</span><span class="p">[</span><span class="s2">"oof"</span><span class="p">])</span>
+    <span class="n">err</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">lab</span><span class="p">[</span><span class="s2">"y"</span><span class="p">]</span> <span class="o">-</span> <span class="n">lab</span><span class="p">[</span><span class="s2">"oof"</span><span class="p">])</span>
+    <span class="n">m</span> <span class="o">=</span> <span class="n">fit_lgb</span><span class="p">(</span><span class="n">X</span><span class="p">,</span> <span class="n">err</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="n">params</span><span class="o">=</span><span class="n">lgb_params</span><span class="p">(</span><span class="n">objective</span><span class="o">=</span><span class="s2">"l1"</span><span class="p">,</span> <span class="n">num_leaves</span><span class="o">=</span><span class="mi">7</span><span class="p">,</span> <span class="n">min_data_in_leaf</span><span class="o">=</span><span class="mi">60</span><span class="p">),</span> <span class="n">n_rounds</span><span class="o">=</span><span class="mi">300</span><span class="p">)</span>
+    <span class="n">m</span><span class="o">.</span><span class="n">save_model</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="s2">"lgb_abs_err.txt"</span><span class="p">))</span>
+    <span class="n">pred</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">predict</span><span class="p">(</span><span class="n">X</span><span class="p">)</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">"n"</span><span class="p">:</span> <span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">lab</span><span class="p">)),</span> <span class="s2">"mean_abs_err"</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">err</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span> <span class="s2">"in_sample_corr"</span><span class="p">:</span> <span class="nb">float</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">corrcoef</span><span class="p">(</span><span class="n">pred</span><span class="p">,</span> <span class="n">err</span><span class="p">)[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])}</span></div>
+
+
+
+<div class="viewcode-block" id="export_nn_onnx">
+<a class="viewcode-back" href="../../ml.html#ml.train.export_nn_onnx">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">export_nn_onnx</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Экспорт обученных NN в ONNX + динамическая int8-квантизация (ONNX Runtime)."""</span>
+    <span class="kn">import</span><span class="w"> </span><span class="nn">torch</span>
+
+    <span class="kn">from</span><span class="w"> </span><span class="nn">.nn</span><span class="w"> </span><span class="kn">import</span> <span class="n">export_onnx</span><span class="p">,</span> <span class="n">make_model</span>
+
+    <span class="n">meta</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">((</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="s2">"meta.json"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">))</span>
+    <span class="n">sc</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="nb">open</span><span class="p">(</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="s2">"nn_scaler.json"</span><span class="p">))</span>
+    <span class="n">n_tab</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="nb">len</span><span class="p">(</span><span class="n">sc</span><span class="p">[</span><span class="s2">"cols"</span><span class="p">])</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">f</span> <span class="ow">in</span> <span class="n">meta</span><span class="p">[</span><span class="s2">"models"</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"nn"</span><span class="p">,</span> <span class="p">[]):</span>
+        <span class="n">m</span> <span class="o">=</span> <span class="n">make_model</span><span class="p">(</span><span class="n">n_tab</span><span class="p">)</span>
+        <span class="n">m</span><span class="o">.</span><span class="n">load_state_dict</span><span class="p">(</span><span class="n">torch</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="n">f</span><span class="p">,</span> <span class="n">map_location</span><span class="o">=</span><span class="s2">"cpu"</span><span class="p">))</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="n">f</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">".pt"</span><span class="p">,</span> <span class="s2">".onnx"</span><span class="p">)</span>
+        <span class="n">export_onnx</span><span class="p">(</span><span class="n">m</span><span class="p">,</span> <span class="n">n_tab</span><span class="p">,</span> <span class="n">path</span><span class="p">)</span>
+        <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="kn">from</span><span class="w"> </span><span class="nn">onnxruntime.quantization</span><span class="w"> </span><span class="kn">import</span> <span class="n">QuantType</span><span class="p">,</span> <span class="n">quantize_dynamic</span>
+
+            <span class="n">q</span> <span class="o">=</span> <span class="n">MODEL_DIR</span> <span class="o">/</span> <span class="n">f</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">".pt"</span><span class="p">,</span> <span class="s2">".int8.onnx"</span><span class="p">)</span>
+            <span class="n">quantize_dynamic</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">),</span> <span class="nb">str</span><span class="p">(</span><span class="n">q</span><span class="p">),</span> <span class="n">weight_type</span><span class="o">=</span><span class="n">QuantType</span><span class="o">.</span><span class="n">QInt8</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">q</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>  <span class="c1"># noqa: BLE001</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">"[onnx] квантизация не удалась:"</span><span class="p">,</span> <span class="n">e</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">out</span></div>
+
+
+
+<span class="c1"># ------------------------------------------------------------------ submission</span>
+
+
+<div class="viewcode-block" id="write_submission">
+<a class="viewcode-back" href="../../ml.html#ml.train.write_submission">[документация]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">write_submission</span><span class="p">(</span><span class="n">pred</span><span class="p">:</span> <span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">,</span> <span class="n">tag</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Пишет ``sample_id;prediction`` и проверяет формат против sample_submission."""</span>
+    <span class="n">tmpl</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">DATA_DIR</span> <span class="o">/</span> <span class="s2">"sample_submission.csv"</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="s2">";"</span><span class="p">)</span>
+    <span class="n">sub</span> <span class="o">=</span> <span class="n">tmpl</span><span class="p">[[</span><span class="s2">"sample_id"</span><span class="p">]]</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+    <span class="n">sub</span><span class="p">[</span><span class="s2">"prediction"</span><span class="p">]</span> <span class="o">=</span> <span class="n">sub</span><span class="p">[</span><span class="s2">"sample_id"</span><span class="p">]</span><span class="o">.</span><span class="n">map</span><span class="p">(</span><span class="n">pred</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">sub</span><span class="p">[</span><span class="s2">"prediction"</span><span class="p">]</span><span class="o">.</span><span class="n">notna</span><span class="p">()</span><span class="o">.</span><span class="n">all</span><span class="p">(),</span> <span class="s2">"есть sample_id без прогноза"</span>
+    <span class="k">assert</span> <span class="n">sub</span><span class="p">[</span><span class="s2">"sample_id"</span><span class="p">]</span><span class="o">.</span><span class="n">is_unique</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">sub</span><span class="p">)</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">tmpl</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">sub</span><span class="p">[</span><span class="s2">"prediction"</span><span class="p">])</span><span class="o">.</span><span class="n">all</span><span class="p">()</span>
+    <span class="n">sub</span><span class="p">[</span><span class="s2">"prediction"</span><span class="p">]</span> <span class="o">=</span> <span class="n">sub</span><span class="p">[</span><span class="s2">"prediction"</span><span class="p">]</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">SUB_DIR</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">SUB_DIR</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"submission_</span><span class="si">{</span><span class="n">tag</span><span class="si">}</span><span class="s2">.csv"</span>
+    <span class="n">sub</span><span class="o">.</span><span class="n">to_csv</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="s2">";"</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">path</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">main</span><span class="p">():</span>
+    <span class="n">ap</span> <span class="o">=</span> <span class="n">argparse</span><span class="o">.</span><span class="n">ArgumentParser</span><span class="p">()</span>
+    <span class="n">ap</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--cv"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">)</span>
+    <span class="n">ap</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--fit"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">)</span>
+    <span class="n">ap</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--submit"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">)</span>
+    <span class="n">ap</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--nn"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">"включить GRU/MLP в ансамбль"</span><span class="p">)</span>
+    <span class="n">ap</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--onnx"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">"экспорт NN в ONNX (+int8)"</span><span class="p">)</span>
+    <span class="n">ap</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--errmodel"</span><span class="p">,</span> <span class="n">action</span><span class="o">=</span><span class="s2">"store_true"</span><span class="p">,</span> <span class="n">help</span><span class="o">=</span><span class="s2">"модель ожидаемой абсолютной ошибки по OOF"</span><span class="p">)</span>
+    <span class="n">ap</span><span class="o">.</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">"--tag"</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="n">time</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">"%m</span><span class="si">%d</span><span class="s2">_%H%M"</span><span class="p">))</span>
+    <span class="n">a</span> <span class="o">=</span> <span class="n">ap</span><span class="o">.</span><span class="n">parse_args</span><span class="p">()</span>
+    <span class="n">CONFIG</span><span class="p">[</span><span class="s2">"use_nn"</span><span class="p">]</span> <span class="o">=</span> <span class="n">a</span><span class="o">.</span><span class="n">nn</span>
+    <span class="n">df</span><span class="p">,</span> <span class="n">seq</span> <span class="o">=</span> <span class="n">load_table</span><span class="p">()</span>
+    <span class="n">blend_w</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"lgb"</span><span class="p">:</span> <span class="mf">0.6</span><span class="p">,</span> <span class="s2">"cat"</span><span class="p">:</span> <span class="mf">0.4</span><span class="p">}</span>
+    <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">cv</span><span class="p">:</span>
+        <span class="n">rep</span> <span class="o">=</span> <span class="n">run_cv_report</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">seq</span><span class="p">)</span>
+        <span class="n">blend_w</span> <span class="o">=</span> <span class="n">rep</span><span class="p">[</span><span class="s2">"blend_weights"</span><span class="p">]</span>
+        <span class="nb">print</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">({</span><span class="n">k</span><span class="p">:</span> <span class="n">rep</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"families"</span><span class="p">,</span> <span class="s2">"blend_weights"</span><span class="p">,</span> <span class="s2">"blend"</span><span class="p">,</span> <span class="s2">"baselines"</span><span class="p">)},</span> <span class="n">ensure_ascii</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">))</span>
+    <span class="k">elif</span> <span class="p">(</span><span class="n">REPORT_DIR</span> <span class="o">/</span> <span class="s2">"cv_report.json"</span><span class="p">)</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="n">blend_w</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">((</span><span class="n">REPORT_DIR</span> <span class="o">/</span> <span class="s2">"cv_report.json"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">))[</span><span class="s2">"blend_weights"</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">fit</span><span class="p">:</span>
+        <span class="n">fit_final</span><span class="p">(</span><span class="n">df</span><span class="p">,</span> <span class="n">seq</span><span class="p">,</span> <span class="n">blend_w</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"[fit] модели сохранены в"</span><span class="p">,</span> <span class="n">MODEL_DIR</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">onnx</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"[onnx]"</span><span class="p">,</span> <span class="n">export_nn_onnx</span><span class="p">())</span>
+    <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">errmodel</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"[errmodel]"</span><span class="p">,</span> <span class="n">fit_error_model</span><span class="p">(</span><span class="n">df</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">a</span><span class="o">.</span><span class="n">submit</span><span class="p">:</span>
+        <span class="kn">from</span><span class="w"> </span><span class="nn">.predictor</span><span class="w"> </span><span class="kn">import</span> <span class="n">DelayPredictor</span>
+
+        <span class="n">pr</span> <span class="o">=</span> <span class="n">DelayPredictor</span><span class="o">.</span><span class="n">load</span><span class="p">()</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="n">df</span><span class="p">[</span><span class="n">df</span><span class="p">[</span><span class="s2">"split"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"validate"</span><span class="p">]</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">drop</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">vseq</span> <span class="o">=</span> <span class="n">seq</span><span class="p">[(</span><span class="n">df</span><span class="p">[</span><span class="s2">"split"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"validate"</span><span class="p">)</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">()]</span> <span class="k">if</span> <span class="n">seq</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="kc">None</span>
+        <span class="n">p</span> <span class="o">=</span> <span class="n">pr</span><span class="o">.</span><span class="n">predict_frame</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="n">vseq</span><span class="p">)</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">write_submission</span><span class="p">(</span><span class="n">pd</span><span class="o">.</span><span class="n">Series</span><span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="s2">"delay_pred"</span><span class="p">]</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(),</span> <span class="n">index</span><span class="o">=</span><span class="n">val</span><span class="p">[</span><span class="s2">"sample_id"</span><span class="p">]),</span> <span class="n">a</span><span class="o">.</span><span class="n">tag</span><span class="p">)</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">"[submit] -&gt;"</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="s2">"| mean pred"</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">p</span><span class="p">[</span><span class="s2">"delay_pred"</span><span class="p">]</span><span class="o">.</span><span class="n">mean</span><span class="p">()),</span> <span class="mi">1</span><span class="p">))</span>
+
+
+<span class="k">if</span> <span class="vm">__name__</span> <span class="o">==</span> <span class="s2">"__main__"</span><span class="p">:</span>
+    <span class="n">main</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">Transit Delay Predictor</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Искать" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Навигация</h3>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../ml.html">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../ndtp.html">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../service.html">ML-сервис (FastAPI)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../backend.html">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Код модуля</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

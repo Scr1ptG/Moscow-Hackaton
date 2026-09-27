@@ -1,0 +1,54 @@
+[cv] fold base_tr=122048 готов (47 c)
+[cv] fold base_tr=122613 готов (95 c)
+[cv] fold base_tr=122658 готов (144 c)
+[cv] fold base_tr=129964 готов (195 c)
+[cv] fold base_tr=130072 готов (246 c)
+[cv] fold base_tr=130238 готов (296 c)
+[cv] fold base_tr=131672 готов (342 c)
+[cv] fold base_tr=132430 готов (387 c)
+[cv] fold base_tr=133300 готов (434 c)
+[cv] fold base_tr=133957 готов (479 c)
+[cv] fold base_tr=134040 готов (525 c)
+[cv] fold base_tr=134494 готов (574 c)
+[cv] fold base_tr=135081 готов (621 c)
+{
+  "families": {
+    "lgb": {
+      "mae_real": 70.07609667964148,
+      "mae_test": 77.58762809825993
+    },
+    "cat": {
+      "mae_real": 70.62444406105043,
+      "mae_test": 78.1529132672762
+    },
+    "nn": {
+      "mae_real": 74.0687464186585,
+      "mae_test": 82.26121622703906
+    }
+  },
+  "blend_weights": {
+    "lgb": 0.55,
+    "cat": 0.15,
+    "nn": 0.3
+  },
+  "blend": {
+    "mae_real": 68.97770755463253,
+    "mae_test": 76.72443183945747,
+    "score_test_est": 1.0,
+    "score_real_est": 1.0
+  },
+  "baselines": {
+    "zero": {
+      "mae_real": 93.0033467202142,
+      "mae_test": 103.33711048158641
+    },
+    "cur_dev_s": {
+      "mae_real": 88.37884872824633,
+      "mae_test": 93.35977337110482,
+      "score_test_est": 0.40062799177085984
+    }
+  }
+}
+[fit] модели сохранены в C:\Users\ibrag\OneDrive\Desktop\mt-hackathon\artifacts\models
+[submit] -> C:\Users\ibrag\OneDrive\Desktop\mt-hackathon\submissions\submission_v2.csv | mean pred 54.1
+exit 0

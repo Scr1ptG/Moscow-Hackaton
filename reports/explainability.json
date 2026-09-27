@@ -1,0 +1,76 @@
+{
+  "additivity_max_abs_error_s": 6.252776074688882e-13,
+  "monotonicity": {
+    "cur_dev_s": {
+      "direction": 1,
+      "violations": 0,
+      "checks": 7200
+    },
+    "det_plus_hist_gain": {
+      "direction": 1,
+      "violations": 0,
+      "checks": 7200
+    },
+    "hist_tgt_delay": {
+      "direction": 1,
+      "violations": 0,
+      "checks": 7200
+    },
+    "layover_slack_s": {
+      "direction": -1,
+      "violations": 0,
+      "checks": 7200
+    }
+  },
+  "deletion_test": {
+    "mean_abs_change_top_group_s": 39.26292737011386,
+    "mean_abs_change_random_group_s": 9.229855470901823,
+    "share_top_bigger": 0.7369477911646586
+  },
+  "stability_5min": {
+    "pairs": 1369,
+    "same_top_cause": 0.5682980277574872,
+    "median_cosine_contrib": 0.8424111468620938
+  },
+  "calibration_out_of_sample": {
+    "interval_q10_q90_coverage": 0.785809906291834,
+    "brier_p_late": 0.11660870846717261,
+    "brier_constant": 0.17059223059126283,
+    "expected_vs_actual_abs_error": [
+      68.42091888398289,
+      68.10912824350771
+    ]
+  },
+  "importance_feature_mean_abs_s": {
+    "cur_dev_s": 28.92,
+    "det_plus_hist_gain": 18.2,
+    "hist_tgt_delay": 12.44,
+    "det_stops_to_tgt": 12.33,
+    "valid_share_30m": 11.46,
+    "hour": 5.83,
+    "plan_path_speed": 5.17,
+    "speed_mean_5m": 4.99,
+    "layover_slack_s": 3.0
+  },
+  "importance_group_mean_abs_s": {
+    "current_delay": 28.92,
+    "segment_history": 25.26,
+    "position": 12.33,
+    "telematics": 11.46,
+    "time_of_day": 5.83,
+    "tight_schedule": 5.17,
+    "traffic": 4.99,
+    "terminal_layover": 3.0
+  },
+  "top_cause_share": {
+    "current_delay": 0.434,
+    "segment_history": 0.384,
+    "position": 0.068,
+    "trip_start_rule": 0.048,
+    "telematics": 0.046,
+    "time_of_day": 0.012,
+    "traffic": 0.005,
+    "tight_schedule": 0.003,
+    "terminal_layover": 0.001
+  }
+}

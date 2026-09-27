@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+
+<html lang="ru" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Backend (пакет backend) &#8212; документация Transit Delay Predictor </title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=372fde1a"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/translations.js?v=cd1d70c9"></script>
+    <link rel="index" title="Алфавитный указатель" href="genindex.html" />
+    <link rel="search" title="Поиск" href="search.html" />
+    <link rel="prev" title="ML-сервис (FastAPI)" href="service.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="module-backend">
+<span id="backend-backend"></span><h1>Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)<a class="headerlink" href="#module-backend" title="Ссылка на этот заголовок">¶</a></h1>
+<p>Backend-оркестратор «Предиктора изменений в графике транспорта».</p>
+<p>Отдельный сервис (FastAPI), не импортирует ML-код: общается с ML-сервисом по HTTP.</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="#module-backend.config" title="backend.config"><code class="xref py py-mod docutils literal notranslate"><span class="pre">backend.config</span></code></a> — настройки из переменных окружения;</p></li>
+<li><p><a class="reference internal" href="#module-backend.schedule" title="backend.schedule"><code class="xref py py-mod docutils literal notranslate"><span class="pre">backend.schedule</span></code></a> — расписание, остановки и маршруты для карты;</p></li>
+<li><p><a class="reference internal" href="#module-backend.ml_client" title="backend.ml_client"><code class="xref py py-mod docutils literal notranslate"><span class="pre">backend.ml_client</span></code></a> — клиент ML-сервиса с circuit breaker;</p></li>
+<li><p><a class="reference internal" href="#module-backend.state" title="backend.state"><code class="xref py py-mod docutils literal notranslate"><span class="pre">backend.state</span></code></a> — состояние ТС, прогнозов, алертов, метрик;</p></li>
+<li><p><a class="reference internal" href="#module-backend.alerts" title="backend.alerts"><code class="xref py py-mod docutils literal notranslate"><span class="pre">backend.alerts</span></code></a> — жизненный цикл инцидентов;</p></li>
+<li><p><a class="reference internal" href="#module-backend.worker" title="backend.worker"><code class="xref py py-mod docutils literal notranslate"><span class="pre">backend.worker</span></code></a> — фоновые циклы: пересылка телеметрии и прогнозы;</p></li>
+<li><p><a class="reference internal" href="#module-backend.api" title="backend.api"><code class="xref py py-mod docutils literal notranslate"><span class="pre">backend.api</span></code></a> / <code class="xref py py-mod docutils literal notranslate"><span class="pre">backend.main</span></code> — REST + WebSocket для дашборда.</p></li>
+</ul>
+<p id="module-backend.config">Настройки backend (переменные окружения).</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.config.Settings">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.config.</span></span><span class="sig-name descname"><span class="pre">Settings</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ml_url</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">data_dir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">schedule_split</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">predict_every_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">forward_every_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ml_timeout_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">breaker_failures</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">breaker_cooldown_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stale_after_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alert_min_risk</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolve_after_cycles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_buffer</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ndtp_host</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ndtp_port</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">emulator_url</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">emulator_target_host</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/config.html#Settings"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.config.Settings" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Параметры сервиса; все задаются через окружение (см. README).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ml_url</strong> (<em>str</em>)</p></li>
+<li><p><strong>data_dir</strong> (<em>str</em>)</p></li>
+<li><p><strong>schedule_split</strong> (<em>str</em>)</p></li>
+<li><p><strong>predict_every_s</strong> (<em>float</em>)</p></li>
+<li><p><strong>forward_every_s</strong> (<em>float</em>)</p></li>
+<li><p><strong>ml_timeout_s</strong> (<em>float</em>)</p></li>
+<li><p><strong>breaker_failures</strong> (<em>int</em>)</p></li>
+<li><p><strong>breaker_cooldown_s</strong> (<em>float</em>)</p></li>
+<li><p><strong>stale_after_s</strong> (<em>float</em>)</p></li>
+<li><p><strong>alert_min_risk</strong> (<em>str</em>)</p></li>
+<li><p><strong>resolve_after_cycles</strong> (<em>int</em>)</p></li>
+<li><p><strong>max_buffer</strong> (<em>int</em>)</p></li>
+<li><p><strong>ndtp_host</strong> (<em>str</em>)</p></li>
+<li><p><strong>ndtp_port</strong> (<em>int</em>)</p></li>
+<li><p><strong>emulator_url</strong> (<em>str</em>)</p></li>
+<li><p><strong>emulator_target_host</strong> (<em>str</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.config.Settings.schedule_split">
+<span class="sig-name descname"><span class="pre">schedule_split</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#backend.config.Settings.schedule_split" title="Ссылка на это определение">¶</a></dt>
+<dd><p>test/validate/train)</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>какой день обслуживаем (для демо — день раздачи</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.config.Settings.predict_every_s">
+<span class="sig-name descname"><span class="pre">predict_every_s</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span></span><a class="headerlink" href="#backend.config.Settings.predict_every_s" title="Ссылка на это определение">¶</a></dt>
+<dd><p>как часто (в секундах реального времени) запрашивать прогнозы</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.config.Settings.forward_every_s">
+<span class="sig-name descname"><span class="pre">forward_every_s</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span></span><a class="headerlink" href="#backend.config.Settings.forward_every_s" title="Ссылка на это определение">¶</a></dt>
+<dd><p>как часто пересылать накопленную телеметрию в ML</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.config.Settings.breaker_failures">
+<span class="sig-name descname"><span class="pre">breaker_failures</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#backend.config.Settings.breaker_failures" title="Ссылка на это определение">¶</a></dt>
+<dd><p>после N ошибок подряд ML считается недоступным на cooldown секунд</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>circuit breaker</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.config.Settings.stale_after_s">
+<span class="sig-name descname"><span class="pre">stale_after_s</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span></span><a class="headerlink" href="#backend.config.Settings.stale_after_s" title="Ссылка на это определение">¶</a></dt>
+<dd><p>ТС без телеметрии дольше этого (время потока) — «связь потеряна»</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.config.Settings.alert_min_risk">
+<span class="sig-name descname"><span class="pre">alert_min_risk</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#backend.config.Settings.alert_min_risk" title="Ссылка на это определение">¶</a></dt>
+<dd><p>yellow | red</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>минимальный уровень риска для алерта</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.config.Settings.resolve_after_cycles">
+<span class="sig-name descname"><span class="pre">resolve_after_cycles</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#backend.config.Settings.resolve_after_cycles" title="Ссылка на это определение">¶</a></dt>
+<dd><p>сколько «зелёных» циклов подряд нужно для закрытия алерта</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.config.Settings.max_buffer">
+<span class="sig-name descname"><span class="pre">max_buffer</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></span><a class="headerlink" href="#backend.config.Settings.max_buffer" title="Ссылка на это определение">¶</a></dt>
+<dd><p>буфер телеметрии на время недоступности ML (записей)</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.config.Settings.emulator_target_host">
+<span class="sig-name descname"><span class="pre">emulator_target_host</span></span><span class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">str</span></span><a class="headerlink" href="#backend.config.Settings.emulator_target_host" title="Ссылка на это определение">¶</a></dt>
+<dd><p>из Docker-сети — «ingest», с хоста — «host.docker.internal»</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>куда эмулятор шлёт NDTP</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-backend.schedule">Расписание для backend: остановки, маршруты (линии для карты), участок до цели.</p>
+<p>Backend читает те же CSV, что и ML-сервис, но использует их только для отображения
+(карта, карточка инцидента) и для живой оценки качества. Факт прибытия
+(<code class="docutils literal notranslate"><span class="pre">time_fact_begin</span></code>), если он есть в файле, <strong>никогда не передаётся в ML</strong> — он нужен
+лишь для метрик на реплее уже прошедшего дня.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.schedule.Schedule">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.schedule.</span></span><span class="sig-name descname"><span class="pre">Schedule</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">stops</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unit_to_tr</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/schedule.html#Schedule"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.schedule.Schedule" title="Ссылка на это определение">¶</a></dt>
+<dd><p>План дня по ТС + справочники остановок.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>stops</strong> (<em>DataFrame</em>)</p></li>
+<li><p><strong>unit_to_tr</strong> (<em>dict</em><em>[</em><em>int</em><em>, </em><em>int</em><em>]</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="backend.schedule.Schedule.route_line">
+<span class="sig-name descname"><span class="pre">route_line</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tr_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/schedule.html#Schedule.route_line"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.schedule.Schedule.route_line" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Линия маршрута для карты: уникальные остановки ТС в порядке первого проезда.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>tr_id</strong> (<em>int</em>)</p>
+</dd>
+<dt class="field-even">Тип результата<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[list[float]]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="backend.schedule.Schedule.segment">
+<span class="sig-name descname"><span class="pre">segment</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tr_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">now</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_stop_id</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/schedule.html#Schedule.segment"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.schedule.Schedule.segment" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Участок маршрута от последней плановой остановки (&lt;= now) до целевой — для карточки.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tr_id</strong> (<em>int</em>)</p></li>
+<li><p><strong>now</strong> (<em>float</em>)</p></li>
+<li><p><strong>target_stop_id</strong> (<em>int</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Тип результата<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[list[float]]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-backend.ml_client">Асинхронный клиент ML-сервиса с circuit breaker.</p>
+<p>Если ML-сервис N раз подряд не ответил, breaker «размыкается»: запросы не шлются
+<code class="docutils literal notranslate"><span class="pre">cooldown</span></code> секунд (backend работает на последнем известном состоянии), затем
+пробный запрос (half-open) — при успехе breaker замыкается.</p>
+<dl class="py exception">
+<dt class="sig sig-object py" id="backend.ml_client.MLUnavailable">
+<span class="property"><span class="k"><span class="pre">exception</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.ml_client.</span></span><span class="sig-name descname"><span class="pre">MLUnavailable</span></span><a class="reference internal" href="_modules/backend/ml_client.html#MLUnavailable"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.ml_client.MLUnavailable" title="Ссылка на это определение">¶</a></dt>
+<dd><p>ML-сервис недоступен (ошибка запроса или разомкнут breaker).</p>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.ml_client.CircuitBreaker">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.ml_client.</span></span><span class="sig-name descname"><span class="pre">CircuitBreaker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">failures_to_open</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'int'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">3</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cooldown_s</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">10.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">failures</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'int'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opened_at</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float</span> <span class="pre">|</span> <span class="pre">None'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_failures</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'int'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/ml_client.html#CircuitBreaker"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.ml_client.CircuitBreaker" title="Ссылка на это определение">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>failures_to_open</strong> (<em>int</em>)</p></li>
+<li><p><strong>cooldown_s</strong> (<em>float</em>)</p></li>
+<li><p><strong>failures</strong> (<em>int</em>)</p></li>
+<li><p><strong>opened_at</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>total_failures</strong> (<em>int</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.ml_client.MLClient">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.ml_client.</span></span><span class="sig-name descname"><span class="pre">MLClient</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">base_url</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">10.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">breaker</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">latencies_ms</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/ml_client.html#MLClient"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.ml_client.MLClient" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Клиент ML-сервиса (контракт — <code class="docutils literal notranslate"><span class="pre">services/ml_service/app.py</span></code>).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>base_url</strong> (<em>str</em>)</p></li>
+<li><p><strong>timeout_s</strong> (<em>float</em>)</p></li>
+<li><p><strong>breaker</strong> (<a class="reference internal" href="#backend.ml_client.CircuitBreaker" title="backend.ml_client.CircuitBreaker"><em>CircuitBreaker</em></a>)</p></li>
+<li><p><strong>latencies_ms</strong> (<em>list</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<p id="module-backend.state">Состояние backend в памяти: ТС, прогнозы, инциденты, живые метрики.</p>
+<p>Время в системе — «время потока» (метки телеметрии): при реплее исторического дня
+с ускорением всё (алерты, устаревание данных, оценка качества) идёт по нему.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.state.Vehicle">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.state.</span></span><span class="sig-name descname"><span class="pre">Vehicle</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tr_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'int'</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unit_id</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'int</span> <span class="pre">|</span> <span class="pre">None'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lon</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float</span> <span class="pre">|</span> <span class="pre">None'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lat</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float</span> <span class="pre">|</span> <span class="pre">None'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">speed</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float</span> <span class="pre">|</span> <span class="pre">None'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">heading</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float</span> <span class="pre">|</span> <span class="pre">None'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valid</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'bool'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">last_t</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float</span> <span class="pre">|</span> <span class="pre">None'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">last_valid_t</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float</span> <span class="pre">|</span> <span class="pre">None'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">packets</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'int'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/state.html#Vehicle"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.state.Vehicle" title="Ссылка на это определение">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tr_id</strong> (<em>int</em>)</p></li>
+<li><p><strong>unit_id</strong> (<em>int</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>lon</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>lat</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>speed</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>heading</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>valid</strong> (<em>bool</em>)</p></li>
+<li><p><strong>last_t</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>last_valid_t</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>packets</strong> (<em>int</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.state.Alert">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.state.</span></span><span class="sig-name descname"><span class="pre">Alert</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tr_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">severity</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opened_at</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prediction</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">segment</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'open'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">updated_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolved_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">peak_delay_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">green_cycles</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">history</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/state.html#Alert"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.state.Alert" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Инцидент: ТС с высоким риском отклонения на горизонте 10–15 мин.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tr_id</strong> (<em>int</em>)</p></li>
+<li><p><strong>severity</strong> (<em>str</em>)</p></li>
+<li><p><strong>opened_at</strong> (<em>float</em>)</p></li>
+<li><p><strong>prediction</strong> (<em>dict</em>)</p></li>
+<li><p><strong>target</strong> (<em>dict</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>segment</strong> (<em>list</em>)</p></li>
+<li><p><strong>id</strong> (<em>str</em>)</p></li>
+<li><p><strong>status</strong> (<em>str</em>)</p></li>
+<li><p><strong>updated_at</strong> (<em>float</em>)</p></li>
+<li><p><strong>resolved_at</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>peak_delay_s</strong> (<em>float</em>)</p></li>
+<li><p><strong>green_cycles</strong> (<em>int</em>)</p></li>
+<li><p><strong>history</strong> (<em>list</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.state.Store">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.state.</span></span><span class="sig-name descname"><span class="pre">Store</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">vehicles</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">'dict[int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Vehicle]'</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">predictions</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">'dict[int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dict]'</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pred_history</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">'dict[int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deque]'</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alerts</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">'dict[str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Alert]'</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">open_alert_by_tr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">'dict[int</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">str]'</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">buffer</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'deque'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stream_now</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">last_cycle_now</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">last_cycle_wall</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float</span> <span class="pre">|</span> <span class="pre">None'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cycles</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'int'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">received</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'int'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dropped</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'int'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ml_degraded</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'bool'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ml_schedule_loaded</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'bool'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">pending_eval</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'dict'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scored</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'list'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">started_wall</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="s"><span class="pre">'float'</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/state.html#Store"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.state.Store" title="Ссылка на это определение">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>vehicles</strong> (<em>dict</em><em>[</em><em>int</em><em>, </em><a class="reference internal" href="#backend.state.Vehicle" title="backend.state.Vehicle"><em>Vehicle</em></a><em>]</em>)</p></li>
+<li><p><strong>predictions</strong> (<em>dict</em><em>[</em><em>int</em><em>, </em><em>dict</em><em>]</em>)</p></li>
+<li><p><strong>pred_history</strong> (<em>dict</em><em>[</em><em>int</em><em>, </em><em>deque</em><em>]</em>)</p></li>
+<li><p><strong>alerts</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><a class="reference internal" href="#backend.state.Alert" title="backend.state.Alert"><em>Alert</em></a><em>]</em>)</p></li>
+<li><p><strong>open_alert_by_tr</strong> (<em>dict</em><em>[</em><em>int</em><em>, </em><em>str</em><em>]</em>)</p></li>
+<li><p><strong>buffer</strong> (<em>deque</em>)</p></li>
+<li><p><strong>stream_now</strong> (<em>float</em>)</p></li>
+<li><p><strong>last_cycle_now</strong> (<em>float</em>)</p></li>
+<li><p><strong>last_cycle_wall</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>cycles</strong> (<em>int</em>)</p></li>
+<li><p><strong>received</strong> (<em>int</em>)</p></li>
+<li><p><strong>dropped</strong> (<em>int</em>)</p></li>
+<li><p><strong>ml_degraded</strong> (<em>bool</em>)</p></li>
+<li><p><strong>ml_schedule_loaded</strong> (<em>bool</em>)</p></li>
+<li><p><strong>pending_eval</strong> (<em>dict</em>)</p></li>
+<li><p><strong>scored</strong> (<em>list</em>)</p></li>
+<li><p><strong>started_wall</strong> (<em>float</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<p id="module-backend.alerts">Жизненный цикл инцидентов: открыт -&gt; (подтверждён диспетчером) -&gt; закрыт.</p>
+<p>Один активный инцидент на ТС: он обновляется, пока риск держится, и закрывается,
+когда прогноз N циклов подряд «зелёный» или цель уже в прошлом без свежего прогноза.</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="backend.alerts.alert_card">
+<span class="sig-prename descclassname"><span class="pre">backend.alerts.</span></span><span class="sig-name descname"><span class="pre">alert_card</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">a</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/alerts.html#alert_card"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.alerts.alert_card" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Карточка инцидента для диспетчера: прогноз, интервал, причина, объяснение, участок.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>a</strong> (<a class="reference internal" href="#backend.state.Alert" title="backend.state.Alert"><em>Alert</em></a>)</p>
+</dd>
+<dt class="field-even">Тип результата<span class="colon">:</span></dt>
+<dd class="field-even"><p>dict</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="backend.alerts.update_alerts">
+<span class="sig-prename descclassname"><span class="pre">backend.alerts.</span></span><span class="sig-name descname"><span class="pre">update_alerts</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">store</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">schedule</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">items</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">now</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cfg</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/alerts.html#update_alerts"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.alerts.update_alerts" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Обновляет инциденты по свежим прогнозам; возвращает события для WebSocket.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>store</strong> (<a class="reference internal" href="#backend.state.Store" title="backend.state.Store"><em>Store</em></a>)</p></li>
+<li><p><strong>schedule</strong> (<a class="reference internal" href="#backend.schedule.Schedule" title="backend.schedule.Schedule"><em>Schedule</em></a>)</p></li>
+<li><p><strong>items</strong> (<em>list</em><em>[</em><em>dict</em><em>]</em>)</p></li>
+<li><p><strong>now</strong> (<em>float</em>)</p></li>
+<li><p><strong>cfg</strong> (<a class="reference internal" href="#backend.config.Settings" title="backend.config.Settings"><em>Settings</em></a>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Тип результата<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[dict]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<p id="module-backend.worker">Фоновые циклы backend: приём телеметрии, пересылка в ML, прогнозы, алерты, метрики.</p>
+<p>Надёжность:</p>
+<ul class="simple">
+<li><p>ML недоступен -&gt; телеметрия копится в ограниченном буфере и досылается позже,
+прогнозы помечаются устаревшими (показывается последнее известное состояние);</p></li>
+<li><p>поток телеметрии оборвался -&gt; ТС помечаются «нет связи», сервис продолжает работать.</p></li>
+</ul>
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.worker.Worker">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.worker.</span></span><span class="sig-name descname"><span class="pre">Worker</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">store</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">schedule</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ml</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cfg</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">broadcast</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/worker.html#Worker"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.worker.Worker" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Оркестратор: связывает поток телеметрии, ML-сервис и дашборд.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>store</strong> (<a class="reference internal" href="#backend.state.Store" title="backend.state.Store"><em>Store</em></a>)</p></li>
+<li><p><strong>schedule</strong> (<a class="reference internal" href="#backend.schedule.Schedule" title="backend.schedule.Schedule"><em>Schedule</em></a>)</p></li>
+<li><p><strong>ml</strong> (<a class="reference internal" href="#backend.ml_client.MLClient" title="backend.ml_client.MLClient"><em>MLClient</em></a>)</p></li>
+<li><p><strong>cfg</strong> (<a class="reference internal" href="#backend.config.Settings" title="backend.config.Settings"><em>Settings</em></a>)</p></li>
+<li><p><strong>broadcast</strong> (<em>Callable</em><em>[</em><em>[</em><em>dict</em><em>]</em><em>, </em><em>Awaitable</em><em>[</em><em>None</em><em>]</em><em>] </em><em>| </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py method">
+<dt class="sig sig-object py" id="backend.worker.Worker.ingest">
+<span class="sig-name descname"><span class="pre">ingest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">records</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/worker.html#Worker.ingest"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.worker.Worker.ingest" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Принимает батч навигационных записей (из NDTP-сервера).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>records</strong> (<em>list</em><em>[</em><em>dict</em><em>]</em>)</p>
+</dd>
+<dt class="field-even">Тип результата<span class="colon">:</span></dt>
+<dd class="field-even"><p>int</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="backend.worker.Worker.predict_once">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-name descname"><span class="pre">predict_once</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/worker.html#Worker.predict_once"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.worker.Worker.predict_once" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Один цикл: прогнозы на «сейчас» потока -&gt; инциденты -&gt; метрики -&gt; рассылка.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Тип результата<span class="colon">:</span></dt>
+<dd class="field-odd"><p>list[dict]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+<p id="module-backend.api">REST API и WebSocket для дашборда диспетчера (OpenAPI/Swagger: <code class="docutils literal notranslate"><span class="pre">/docs</span></code>).</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.api.NavRecordIn">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.api.</span></span><span class="sig-name descname"><span class="pre">NavRecordIn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">unit_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tr_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lat</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">speed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">heading</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/api.html#NavRecordIn"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.api.NavRecordIn" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Навигационная запись (ячейка NDTP <code class="docutils literal notranslate"><span class="pre">G6CellNav00</span></code> после парсинга).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>unit_id</strong> (<em>int</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>tr_id</strong> (<em>int</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>t</strong> (<em>float</em>)</p></li>
+<li><p><strong>valid</strong> (<em>bool</em>)</p></li>
+<li><p><strong>lon</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>lat</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>speed</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>heading</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.api.NavRecordIn.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#backend.api.NavRecordIn.model_config" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.api.VehicleOut">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.api.</span></span><span class="sig-name descname"><span class="pre">VehicleOut</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">tr_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">scheduled</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lat</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">speed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">heading</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">last_t</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gps_valid</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">connection</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">risk</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay_pred</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p_late</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cause</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_stop_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prediction_stale</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">alert_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/api.html#VehicleOut"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.api.VehicleOut" title="Ссылка на это определение">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tr_id</strong> (<em>int</em>)</p></li>
+<li><p><strong>scheduled</strong> (<em>bool</em>)</p></li>
+<li><p><strong>lon</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>lat</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>speed</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>heading</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>last_t</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>gps_valid</strong> (<em>bool</em>)</p></li>
+<li><p><strong>connection</strong> (<em>str</em>)</p></li>
+<li><p><strong>risk</strong> (<em>str</em>)</p></li>
+<li><p><strong>delay_pred</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>p_late</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>cause</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>target_stop_id</strong> (<em>int</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>prediction_stale</strong> (<em>bool</em>)</p></li>
+<li><p><strong>alert_id</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.api.VehicleOut.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#backend.api.VehicleOut.model_config" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.api.AlertOut">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.api.</span></span><span class="sig-name descname"><span class="pre">AlertOut</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tr_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">status</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">severity</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">opened_at</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">updated_at</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">resolved_at</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay_pred</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p_late</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cause</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_address</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">peak_delay_s</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/api.html#AlertOut"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.api.AlertOut" title="Ссылка на это определение">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>id</strong> (<em>str</em>)</p></li>
+<li><p><strong>tr_id</strong> (<em>int</em>)</p></li>
+<li><p><strong>status</strong> (<em>str</em>)</p></li>
+<li><p><strong>severity</strong> (<em>str</em>)</p></li>
+<li><p><strong>opened_at</strong> (<em>float</em>)</p></li>
+<li><p><strong>updated_at</strong> (<em>float</em>)</p></li>
+<li><p><strong>resolved_at</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>delay_pred</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>p_late</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>cause</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>target_address</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>peak_delay_s</strong> (<em>float</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.api.AlertOut.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#backend.api.AlertOut.model_config" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.api.WhatIfIn">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.api.</span></span><span class="sig-name descname"><span class="pre">WhatIfIn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tr_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay_shift_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">extra_layover_min</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">reserve_vehicle</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">overrides</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/api.html#WhatIfIn"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.api.WhatIfIn" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Сценарий диспетчера для ТС (к его последнему прогнозу).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tr_id</strong> (<em>int</em>)</p></li>
+<li><p><strong>delay_shift_s</strong> (<em>float</em>)</p></li>
+<li><p><strong>extra_layover_min</strong> (<em>float</em>)</p></li>
+<li><p><strong>reserve_vehicle</strong> (<em>bool</em>)</p></li>
+<li><p><strong>overrides</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>float</em><em>]</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.api.WhatIfIn.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#backend.api.WhatIfIn.model_config" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.api.ReplayIn">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.api.</span></span><span class="sig-name descname"><span class="pre">ReplayIn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">split</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'test'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">speed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">60.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">end</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/api.html#ReplayIn"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.api.ReplayIn" title="Ссылка на это определение">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>split</strong> (<em>str</em>)</p></li>
+<li><p><strong>speed</strong> (<em>float</em>)</p></li>
+<li><p><strong>start</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>end</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.api.ReplayIn.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#backend.api.ReplayIn.model_config" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="backend.api.EmulatorIn">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.api.</span></span><span class="sig-name descname"><span class="pre">EmulatorIn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">interval_ms</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5000</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_host</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_port</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">9201</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/api.html#EmulatorIn"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.api.EmulatorIn" title="Ссылка на это определение">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>units</strong> (<em>list</em><em>[</em><em>int</em><em>]</em>)</p></li>
+<li><p><strong>interval_ms</strong> (<em>int</em>)</p></li>
+<li><p><strong>target_host</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>target_port</strong> (<em>int</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="backend.api.EmulatorIn.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#backend.api.EmulatorIn.model_config" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="backend.api.ws">
+<span class="property"><span class="k"><span class="pre">async</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">backend.api.</span></span><span class="sig-name descname"><span class="pre">ws</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">websocket</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/backend/api.html#ws"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#backend.api.ws" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Поток событий: <code class="docutils literal notranslate"><span class="pre">cycle</span></code> (снимок ТС), <code class="docutils literal notranslate"><span class="pre">alert_opened|updated|resolved</span></code>, <code class="docutils literal notranslate"><span class="pre">degraded</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>websocket</strong> (<em>WebSocket</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">Transit Delay Predictor</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Искать" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Навигация</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="ml.html">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ndtp.html">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="service.html">ML-сервис (FastAPI)</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#backend.config.Settings"><code class="docutils literal notranslate"><span class="pre">Settings</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.schedule.Schedule"><code class="docutils literal notranslate"><span class="pre">Schedule</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.ml_client.MLUnavailable"><code class="docutils literal notranslate"><span class="pre">MLUnavailable</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.ml_client.CircuitBreaker"><code class="docutils literal notranslate"><span class="pre">CircuitBreaker</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.ml_client.MLClient"><code class="docutils literal notranslate"><span class="pre">MLClient</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.state.Vehicle"><code class="docutils literal notranslate"><span class="pre">Vehicle</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.state.Alert"><code class="docutils literal notranslate"><span class="pre">Alert</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.state.Store"><code class="docutils literal notranslate"><span class="pre">Store</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.alerts.alert_card"><code class="docutils literal notranslate"><span class="pre">alert_card()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.alerts.update_alerts"><code class="docutils literal notranslate"><span class="pre">update_alerts()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.worker.Worker"><code class="docutils literal notranslate"><span class="pre">Worker</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.api.NavRecordIn"><code class="docutils literal notranslate"><span class="pre">NavRecordIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.api.VehicleOut"><code class="docutils literal notranslate"><span class="pre">VehicleOut</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.api.AlertOut"><code class="docutils literal notranslate"><span class="pre">AlertOut</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.api.WhatIfIn"><code class="docutils literal notranslate"><span class="pre">WhatIfIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.api.ReplayIn"><code class="docutils literal notranslate"><span class="pre">ReplayIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.api.EmulatorIn"><code class="docutils literal notranslate"><span class="pre">EmulatorIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#backend.api.ws"><code class="docutils literal notranslate"><span class="pre">ws()</span></code></a></li>
+</ul>
+</li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="service.html" title="предыдущая глава">ML-сервис (FastAPI)</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/backend.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

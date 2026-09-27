@@ -1,0 +1,47 @@
+# Система из трёх модулей: ml-service (ML-ядро) + backend (оркестратор) + dashboard (BI), плюс ingest (NDTP).
+# Запуск: cp .env.example .env (указать DATA_DIR) && docker compose up --build  ->  http://localhost:8080
+# Датасет монтируется в /data (путь задаётся переменной DATA_DIR в .env).
+services:
+  ml-service:
+    build: { context: ., dockerfile: services/ml_service/Dockerfile }
+    ports: ["8001:8001"]
+    volumes: ["${DATA_DIR:-./data}:/data:ro"]
+    restart: unless-stopped
+
+  # Горизонтальное масштабирование: N реплик ML-сервиса, у каждой ML_SHARD=i/N
+  # (ingest шлёт запись в реплику shard_of(tr_id, N)). Пример второй реплики:
+  # ml-service-1:
+  #   build: { context: ., dockerfile: services/ml_service/Dockerfile }
+  #   environment: { ML_SHARD: "1/2" }
+
+  backend:  # оркестратор: телеметрия -> ML, инциденты, REST/WS для дашборда (Swagger /docs)
+    build: { context: ., dockerfile: backend/Dockerfile }
+    ports: ["8000:8000"]
+    volumes: ["${DATA_DIR:-./data}:/data:ro"]
+    environment: { SCHEDULE_SPLIT: "${SCHEDULE_SPLIT:-test}" }
+    depends_on: [ml-service]
+    restart: unless-stopped
+
+  ingest:  # NDTP TCP-сервер: эмулятор / реплеер -> backend
+    build: { context: ., dockerfile: ndtp/Dockerfile }
+    ports: ["9201:9201"]
+    depends_on: [backend]
+    restart: unless-stopped
+
+  emulator:  # docker load -i ndtp-telemetry-emulator.tar
+    image: ndtp-telemetry-emulator:1.0
+    ports: ["18080:18080"]
+    profiles: ["emulator"]
+
+  replay:  # реплей реального дня из traffic.csv в NDTP (ускорение 60x)
+    build: { context: ., dockerfile: ndtp/Dockerfile }
+    command: ["python", "-m", "ndtp.replay", "--split", "test", "--host", "ingest", "--port", "9201", "--speed", "60"]
+    volumes: ["${DATA_DIR:-./data}:/data:ro"]
+    depends_on: [ingest]
+    profiles: ["replay"]
+
+  dashboard:  # BI-дашборд диспетчера (nginx: статика + прокси /api и WebSocket в backend)
+    build: { context: ., dockerfile: dashboard/Dockerfile }
+    ports: ["8080:80"]
+    depends_on: [backend]
+    restart: unless-stopped

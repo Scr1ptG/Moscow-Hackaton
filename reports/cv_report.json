@@ -1,0 +1,172 @@
+{
+  "features": [
+    "cur_dev_s",
+    "lead_s",
+    "cur_dev_is0",
+    "hour",
+    "n_stops_plan",
+    "since_last_plan",
+    "plan_path_s",
+    "plan_path_m",
+    "plan_path_speed",
+    "max_gap_path",
+    "n_trip_starts_path",
+    "layover_path_s",
+    "tgt_is_trip_start",
+    "tgt_gap_prev",
+    "tgt_dist_prev",
+    "tgt_pos_in_trip",
+    "tgt_to_trip_end",
+    "trip_len",
+    "last_is_trip_end",
+    "tgt_after_layover_s",
+    "layover_end_minus_T",
+    "has_telemetry",
+    "age_last_pkt",
+    "age_last_valid",
+    "n_pkt_5m",
+    "valid_share_5m",
+    "n_pkt_15m",
+    "valid_share_15m",
+    "n_pkt_30m",
+    "valid_share_30m",
+    "speed_last",
+    "speed_mean_2m",
+    "stop_share_2m",
+    "speed_mean_5m",
+    "stop_share_5m",
+    "speed_mean_10m",
+    "stop_share_10m",
+    "moved_5m",
+    "moved_10m",
+    "dist_to_tgt",
+    "dist_to_next_plan",
+    "det_delay",
+    "detw_delay",
+    "dist_to_last_plan",
+    "det_age",
+    "det_stops_to_tgt",
+    "det_plan_to_tgt",
+    "det_same_trip",
+    "det_delay_mean3",
+    "det_n15m",
+    "det_lb",
+    "det_next_plan_minus_T",
+    "detw_age",
+    "detw_stops_to_tgt",
+    "detw_plan_to_tgt",
+    "detw_same_trip",
+    "detw_delay_mean3",
+    "detw_n15m",
+    "detw_lb",
+    "detw_next_plan_minus_T",
+    "pos_delay",
+    "pos_u",
+    "det_slope",
+    "det_extrap",
+    "det_speed_route",
+    "det_plan_rate",
+    "phys_delay",
+    "plan_rate_extrap",
+    "detw_slope",
+    "detw_extrap",
+    "det_rate_recent",
+    "n_plan_recent",
+    "det_at_last_plan",
+    "cur_minus_det_last",
+    "dist_to_layover_stop",
+    "at_terminal_s",
+    "layover_slack_s",
+    "hist_tripstart_delay",
+    "hist_tgt_det_share",
+    "hist_tgt_dmin",
+    "hist_tgt_delay",
+    "hist_tgt_age",
+    "hist_tgt_delay_mean3",
+    "hist_gain",
+    "hist_gain_mean",
+    "det_plus_hist_gain"
+  ],
+  "n_features": 86,
+  "cv": "leave-one-vehicle-out (реальное ТС + его синтетические копии в одном фолде), метрика по реальным ТС",
+  "families": {
+    "lgb": {
+      "mae_real": 70.07609667964148,
+      "mae_test": 77.58762809825993
+    },
+    "cat": {
+      "mae_real": 70.62444406105043,
+      "mae_test": 78.1529132672762
+    },
+    "nn": {
+      "mae_real": 74.0687464186585,
+      "mae_test": 82.26121622703906
+    }
+  },
+  "blend_weights": {
+    "lgb": 0.55,
+    "cat": 0.15,
+    "nn": 0.3
+  },
+  "blend": {
+    "mae_real": 68.97770755463253,
+    "mae_test": 76.72443183945747,
+    "score_test_est": 1.0,
+    "score_real_est": 1.0
+  },
+  "baselines": {
+    "zero": {
+      "mae_real": 93.0033467202142,
+      "mae_test": 103.33711048158641
+    },
+    "cur_dev_s": {
+      "mae_real": 88.37884872824633,
+      "mae_test": 93.35977337110482,
+      "score_test_est": 0.40062799177085984
+    }
+  },
+  "segments": {
+    "все реальные": {
+      "n": 1494,
+      "mae_zero": 93.0033467202142,
+      "mae_cur_dev": 88.37884872824633,
+      "mae_model": 68.97770755463253
+    },
+    "только test": {
+      "n": 353,
+      "mae_zero": 103.33711048158641,
+      "mae_cur_dev": 93.35977337110482,
+      "mae_model": 76.72443183945747
+    },
+    "без отстоя на пути": {
+      "n": 1033,
+      "mae_zero": 99.10358180058083,
+      "mae_cur_dev": 73.43756050338818,
+      "mae_model": 67.5792834370612
+    },
+    "с отстоем на пути": {
+      "n": 461,
+      "mae_zero": 79.33405639913232,
+      "mae_cur_dev": 121.8590021691974,
+      "mae_model": 72.11126962285637
+    },
+    "цель = старт рейса": {
+      "n": 153,
+      "mae_zero": 65.20915032679738,
+      "mae_cur_dev": 124.0718954248366,
+      "mae_model": 74.52096429181601
+    },
+    "GPS деградирован (valid_15m<0.5)": {
+      "n": 129,
+      "mae_zero": 43.13953488372093,
+      "mae_cur_dev": 50.30232558139535,
+      "mae_model": 45.30816890998832
+    }
+  },
+  "blend_postprocessed": {
+    "mae_real": 68.05076575663072,
+    "mae_test": 75.49515604795025,
+    "score_test_est": 1.0,
+    "trip_start_alpha": 0.15
+  }
+}

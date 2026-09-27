@@ -1,0 +1,8 @@
+{
+  "mode": "initial",
+  "holdout_mae": {
+    "lovo_real": 68.10912824350771,
+    "lovo_test": 74.10270113584514
+  },
+  "decision": "promote"
+}

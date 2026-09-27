@@ -1,0 +1,7 @@
+# Обучение (GPU опционально): поверх рантайма
+-r requirements-ml.txt
+torch>=2.3
+onnx>=1.16
+onnxscript
+scikit-learn>=1.4
+pytest

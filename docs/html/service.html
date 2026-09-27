@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+
+<html lang="ru" data-content_root="./">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>ML-сервис (FastAPI) &#8212; документация Transit Delay Predictor </title>
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=5ecbeea2" />
+    <link rel="stylesheet" type="text/css" href="_static/basic.css?v=b08954a9" />
+    <link rel="stylesheet" type="text/css" href="_static/alabaster.css?v=27fed22d" />
+    <script src="_static/documentation_options.js?v=372fde1a"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/translations.js?v=cd1d70c9"></script>
+    <link rel="index" title="Алфавитный указатель" href="genindex.html" />
+    <link rel="search" title="Поиск" href="search.html" />
+    <link rel="next" title="Backend (пакет backend)" href="backend.html" />
+    <link rel="prev" title="Протокол NDTP (пакет ndtp)" href="ndtp.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+
+  
+  
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <section id="module-services.ml_service.app">
+<span id="ml-fastapi"></span><h1>ML-сервис (FastAPI)<a class="headerlink" href="#module-services.ml_service.app" title="Ссылка на этот заголовок">¶</a></h1>
+<p>ML-сервис: онлайн-инференс прогноза задержек (FastAPI, OpenAPI/Swagger на /docs).</p>
+<p>Контракт с backend:</p>
+<ol class="arabic simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/v1/schedule</span></code> — загрузить плановое расписание дня (CSV-путь или строки).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/v1/telemetry</span></code> — батч навигационных записей из NDTP (уже распарсенных).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span>&#160; <span class="pre">/v1/predictions?now=...</span></code> — прогнозы для всех активных ТС на момент <code class="docutils literal notranslate"><span class="pre">now</span></code>
+(цель — первая плановая остановка в окне (now+10, now+15] мин).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/v1/predict</span></code> — прогноз для заданной точки (tr_id, T, цель, cur_dev_s).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/v1/whatif</span></code> — пересчёт прогноза с переопределением признаков
+(например, «дать ТС дополнительные 3 мин отстоя»).</p></li>
+</ol>
+<p>Запуск: <code class="docutils literal notranslate"><span class="pre">uvicorn</span> <span class="pre">services.ml_service.app:app</span> <span class="pre">--port</span> <span class="pre">8001</span></code>.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="services.ml_service.app.NavRecordIn">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">NavRecordIn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">unit_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tr_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">t</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">valid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">lat</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">speed</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">heading</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#NavRecordIn"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.NavRecordIn" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Навигационная запись (ячейка G6CellNav00 после парсинга NDTP).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>unit_id</strong> (<em>int</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>tr_id</strong> (<em>int</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>t</strong> (<em>float</em>)</p></li>
+<li><p><strong>valid</strong> (<em>bool</em>)</p></li>
+<li><p><strong>lon</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>lat</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>speed</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>heading</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="services.ml_service.app.NavRecordIn.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#services.ml_service.app.NavRecordIn.model_config" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="services.ml_service.app.ScheduleIn">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">ScheduleIn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">csv_path</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">split</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unit_to_tr</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#ScheduleIn"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.ScheduleIn" title="Ссылка на это определение">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>csv_path</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>split</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>unit_to_tr</strong> (<em>dict</em><em>[</em><em>int</em><em>, </em><em>int</em><em>]</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="services.ml_service.app.ScheduleIn.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#services.ml_service.app.ScheduleIn.model_config" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="services.ml_service.app.PointIn">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">PointIn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="keyword-only-separator o"><abbr title="Keyword-only parameters separator (PEP 3102)"><span class="pre">*</span></abbr></span></em>, <em class="sig-param"><span class="n"><span class="pre">tr_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_stop_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_plan</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cur_dev_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#PointIn"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.PointIn" title="Ссылка на это определение">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tr_id</strong> (<em>int</em>)</p></li>
+<li><p><strong>T</strong> (<em>float</em>)</p></li>
+<li><p><strong>target_stop_id</strong> (<em>int</em>)</p></li>
+<li><p><strong>target_plan</strong> (<em>float</em>)</p></li>
+<li><p><strong>cur_dev_s</strong> (<em>float</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="services.ml_service.app.PointIn.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#services.ml_service.app.PointIn.model_config" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="services.ml_service.app.WhatIfIn">
+<span class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></span><span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">WhatIfIn</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tr_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">T</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_stop_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_plan</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cur_dev_s</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">overrides</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shifts</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#WhatIfIn"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.WhatIfIn" title="Ссылка на это определение">¶</a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tr_id</strong> (<em>int</em>)</p></li>
+<li><p><strong>T</strong> (<em>float</em>)</p></li>
+<li><p><strong>target_stop_id</strong> (<em>int</em>)</p></li>
+<li><p><strong>target_plan</strong> (<em>float</em>)</p></li>
+<li><p><strong>cur_dev_s</strong> (<em>float</em>)</p></li>
+<li><p><strong>overrides</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>float</em><em>]</em>)</p></li>
+<li><p><strong>shifts</strong> (<em>dict</em><em>[</em><em>str</em><em>, </em><em>float</em><em>]</em>)</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="services.ml_service.app.WhatIfIn.model_config">
+<span class="sig-name descname"><span class="pre">model_config</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{}</span></span><a class="headerlink" href="#services.ml_service.app.WhatIfIn.model_config" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Configuration for the model, should be a dictionary conforming to [<cite>ConfigDict</cite>][pydantic.config.ConfigDict].</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="services.ml_service.app.health">
+<span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">health</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#health"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.health" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Живость сервиса и базовая статистика (для оркестратора).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="services.ml_service.app.model_info">
+<span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">model_info</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#model_info"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.model_info" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Карточка модели: признаки (с описанием и монотонностью), группы причин, метрики.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="services.ml_service.app.reload_model">
+<span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">reload_model</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#reload_model"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.reload_model" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Горячая перезагрузка модели после продвижения новой версии (<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">ml.retrain</span></code>).</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="services.ml_service.app.load_schedule">
+<span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">load_schedule</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">body</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#load_schedule"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.load_schedule" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Загружает плановое расписание (только план, без факта).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>body</strong> (<a class="reference internal" href="#services.ml_service.app.ScheduleIn" title="services.ml_service.app.ScheduleIn"><em>ScheduleIn</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="services.ml_service.app.ingest">
+<span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">ingest</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">records</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#ingest"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.ingest" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Принимает батч навигационных записей.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>records</strong> (<em>list</em><em>[</em><a class="reference internal" href="#services.ml_service.app.NavRecordIn" title="services.ml_service.app.NavRecordIn"><em>NavRecordIn</em></a><em>]</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="services.ml_service.app.predictions">
+<span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">predictions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">now</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#predictions"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.predictions" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Прогнозы на горизонте 10–15 мин для всех ТС с телеметрией на момент <code class="docutils literal notranslate"><span class="pre">now</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>now</strong> (<em>float</em><em> | </em><em>None</em>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="services.ml_service.app.predict">
+<span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">predict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#predict"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.predict" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Прогноз задержки для одной прогнозной точки.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>p</strong> (<a class="reference internal" href="#services.ml_service.app.PointIn" title="services.ml_service.app.PointIn"><em>PointIn</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="services.ml_service.app.whatif">
+<span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">whatif</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#whatif"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.whatif" title="Ссылка на это определение">¶</a></dt>
+<dd><p>What-if: прогноз до и после переопределения признаков (сценарий диспетчера).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>p</strong> (<a class="reference internal" href="#services.ml_service.app.WhatIfIn" title="services.ml_service.app.WhatIfIn"><em>WhatIfIn</em></a>)</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="Main">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">Transit Delay Predictor</a></h1>
+
+
+
+
+
+
+
+
+
+<search id="searchbox" style="display: none" role="search">
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Search"/>
+      <input type="submit" value="Искать" />
+    </form>
+    </div>
+</search>
+<script>document.getElementById('searchbox').style.display = "block"</script><h3>Навигация</h3>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="ml.html">ML-ядро (пакет <code class="docutils literal notranslate"><span class="pre">ml</span></code>)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="ndtp.html">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">ML-сервис (FastAPI)</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.NavRecordIn"><code class="docutils literal notranslate"><span class="pre">NavRecordIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.ScheduleIn"><code class="docutils literal notranslate"><span class="pre">ScheduleIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.PointIn"><code class="docutils literal notranslate"><span class="pre">PointIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.WhatIfIn"><code class="docutils literal notranslate"><span class="pre">WhatIfIn</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.health"><code class="docutils literal notranslate"><span class="pre">health()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.model_info"><code class="docutils literal notranslate"><span class="pre">model_info()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.reload_model"><code class="docutils literal notranslate"><span class="pre">reload_model()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.load_schedule"><code class="docutils literal notranslate"><span class="pre">load_schedule()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.ingest"><code class="docutils literal notranslate"><span class="pre">ingest()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.predictions"><code class="docutils literal notranslate"><span class="pre">predictions()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.predict"><code class="docutils literal notranslate"><span class="pre">predict()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.whatif"><code class="docutils literal notranslate"><span class="pre">whatif()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="backend.html">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="ndtp.html" title="предыдущая глава">Протокол NDTP (пакет <code class="docutils literal notranslate"><span class="pre">ndtp</span></code>)</a></li>
+      <li>Next: <a href="backend.html" title="следующая глава">Backend (пакет <code class="docutils literal notranslate"><span class="pre">backend</span></code>)</a></li>
+  </ul></li>
+</ul>
+</div>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &#169;.
+      
+      |
+      Powered by <a href="https://www.sphinx-doc.org/">Sphinx 9.1.0</a>
+      &amp; <a href="https://alabaster.readthedocs.io">Alabaster 1.0.0</a>
+      
+      |
+      <a href="_sources/service.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

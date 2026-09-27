@@ -1,0 +1,69 @@
+{
+  "features_1_point": {
+    "p50_ms": 0.656,
+    "p95_ms": 0.717
+  },
+  "compact": {
+    "n_features": 9,
+    "model_1_point": {
+      "p50_ms": 0.023,
+      "p95_ms": 0.026
+    },
+    "shap_1_point": {
+      "p50_ms": 0.117,
+      "p95_ms": 0.122
+    },
+    "predict_with_explanation_1_point": {
+      "p50_ms": 2.77,
+      "p95_ms": 3.148
+    },
+    "full_predict_point": {
+      "p50_ms": 1.138,
+      "p95_ms": 1.423
+    },
+    "online_fleet_cycle": {
+      "vehicles": 10,
+      "cold_ms": 90.3,
+      "warm_p50_ms": 20.6,
+      "warm_per_vehicle_ms": 2.06
+    },
+    "batch_151_points_ms": 25.6
+  },
+  "ensemble": {
+    "n_features": 86,
+    "lgb_x5": {
+      "p50_ms": 0.266,
+      "p95_ms": 0.302
+    },
+    "catboost_native_1": {
+      "p50_ms": 0.349,
+      "p95_ms": 0.381
+    },
+    "catboost_onnx_1": {
+      "p50_ms": 0.018,
+      "p95_ms": 0.024
+    },
+    "nn_torch_1": {
+      "p50_ms": 1.9,
+      "p95_ms": 2.591
+    },
+    "nn_onnx_1": {
+      "p50_ms": 0.164,
+      "p95_ms": 0.17
+    },
+    "nn_onnx_int8_1": {
+      "p50_ms": 0.165,
+      "p95_ms": 0.171
+    },
+    "full_predict_point": {
+      "p50_ms": 10.465,
+      "p95_ms": 13.243
+    },
+    "online_fleet_cycle": {
+      "vehicles": 10,
+      "cold_ms": 209.4,
+      "warm_p50_ms": 55.4,
+      "warm_per_vehicle_ms": 5.54
+    }
+  }
+}
