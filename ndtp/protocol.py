@@ -27,6 +27,9 @@ SERVICE_NAVDATA = 1
 NPH_SGC_CONN_REQUEST = 100
 NPH_SND_REALTIME = 101
 
+#: Максимальный размер кадра (maxPacketSize из handshake эмулятора).
+MAX_FRAME = 65535
+
 #: Размер полезной нагрузки ячеек по типу (для пропуска неинтересных ячеек).
 CELL_SIZES = {0: 26, 2: 26, 8: 6, 10: 37, 15: 50, 16: 8}
 
@@ -85,6 +88,7 @@ class FrameDecoder:
         self.buf = bytearray()
         self.check_crc = check_crc
         self.crc_errors = 0
+        self.bad_headers = 0
 
     def feed(self, data: bytes) -> list[Frame]:
         self.buf.extend(data)
@@ -99,6 +103,11 @@ class FrameDecoder:
             if len(self.buf) < NPL.size:
                 return frames
             sig, size, _flags, crc, typ, peer, _req = NPL.unpack_from(self.buf, 0)
+            # ложная сигнатура в мусоре: заголовок не похож на NPL -> сдвиг на байт, не ждём «тело»
+            if typ != NPL_TYPE_NPH or not (NPH.size <= size <= MAX_FRAME):
+                self.bad_headers += 1
+                del self.buf[:1]
+                continue
             if len(self.buf) < NPL.size + size:
                 return frames
             payload = bytes(self.buf[NPL.size : NPL.size + size])
