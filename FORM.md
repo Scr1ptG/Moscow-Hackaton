@@ -1,18 +1,18 @@
 # Тексты для формы «Загрузка решения»
 
-> `<REPO>` заменить на ссылку репозитория GitHub.
 
 **1. Ссылка на рабочую систему из 3 модулей (ML-ядро + Backend + BI-дашборд) в Docker, запускаемая по README**
 
-<REPO>
+https://github.com/Scr1ptG/Moscow-Hackaton
 
 **2. Ссылка на инструкцию для жюри**
 
-<REPO>/blob/main/JURY.md
+https://github.com/Scr1ptG/Moscow-Hackaton/blob/main/JURY.md
 
 **3. Ссылка на документацию (PyDoc/Sphinx + OpenAPI/Swagger)**
 
-<REPO>/tree/main/docs — Sphinx HTML (`docs/html/index.html`), OpenAPI (`docs/openapi/*.json`); Swagger в запущенной системе: http://localhost:8000/docs, http://localhost:8001/docs
+https://scr1ptg.github.io/Moscow-Hackaton/api.html — OpenAPI/Swagger обоих сервисов; оттуда же ссылка на Sphinx:
+https://scr1ptg.github.io/Moscow-Hackaton/html/index.html (исходники документации: https://github.com/Scr1ptG/Moscow-Hackaton/tree/main/docs)
 
 **4. Сведения о производительности и список дополнительных возможностей**
 

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API: backend и ML-сервис</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui.min.css">
+  <style>
+    body { margin: 0; font: 14px system-ui, -apple-system, "Segoe UI", sans-serif; background: #fcfcfb; }
+    header { padding: 12px 20px; border-bottom: 1px solid #e1e0d9; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    header h1 { font-size: 16px; margin: 0; }
+    header a { color: #2a78d6; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>OpenAPI — Предиктор изменений в графике транспорта</h1>
+    <label>Спецификация:
+      <select id="spec">
+        <option value="openapi/backend.json">Backend (оркестратор, :8000)</option>
+        <option value="openapi/ml-service.json">ML-сервис (:8001)</option>
+      </select>
+    </label>
+    <a href="html/index.html">Документация по коду (Sphinx)</a>
+  </header>
+  <div id="ui"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js"></script>
+  <script>
+    const sel = document.getElementById("spec");
+    const render = () => SwaggerUIBundle({ url: sel.value, dom_id: "#ui", deepLinking: true, supportedSubmitMethods: [] });
+    sel.addEventListener("change", render);
+    render();
+  </script>
+</body>
+</html>

@@ -45,6 +45,7 @@ docker compose up --build         # дашборд: http://localhost:8080
 Документы: [`MODEL_CARD.md`](MODEL_CARD.md) (модель и объяснимость) · [`SCALING.md`](SCALING.md)
 (дообучение, масштабирование, надёжность) · [`REPORT.md`](REPORT.md) (ход работы, проблемы данных) ·
 [`docs/html/index.html`](docs/html/index.html) (Sphinx) · [`docs/openapi/`](docs/openapi) (OpenAPI).
+Онлайн: [OpenAPI/Swagger](https://scr1ptg.github.io/Moscow-Hackaton/api.html) · [Sphinx](https://scr1ptg.github.io/Moscow-Hackaton/html/index.html).
 
 ## Структура
 
