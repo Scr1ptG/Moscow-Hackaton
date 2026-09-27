@@ -10,3 +10,5 @@ artifacts/compact.tmp/
 # датасет не кладём в репозиторий — путь задаётся DATA_DIR / MT_DATA_DIR
 data/
 .env
+
+sample_data/
