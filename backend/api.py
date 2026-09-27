@@ -184,6 +184,19 @@ async def whatif(request: Request, body: WhatIfIn):
         raise HTTPException(503, f"ML-сервис недоступен: {e}")
 
 
+@router.get("/segments", summary="Проблемные участки: где ТС сегодня теряют время (по фактическим прибытиям)")
+async def segments(request: Request, min_obs: int = 2):
+    w = _w(request)
+    try:
+        res = await w.ml.segments(w.ml_synced_t, min_obs)
+    except MLUnavailable as e:
+        raise HTTPException(503, f"ML-сервис недоступен: {e}")
+    for s in res.get("items", []):
+        a, b = w.schedule.stop_info(s["from_stop_id"]), w.schedule.stop_info(s["to_stop_id"])
+        s["from_address"], s["to_address"] = (a or {}).get("address"), (b or {}).get("address")
+    return res
+
+
 @router.get("/metrics", summary="Качество онлайн (на реплее дня с фактом) и производительность")
 async def metrics(request: Request):
     w = _w(request)

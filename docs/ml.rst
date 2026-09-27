@@ -29,6 +29,11 @@ ML-ядро (пакет ``ml``)
 .. automodule:: ml.compact
    :members:
 
+Проблемные участки
+------------------
+.. automodule:: ml.segments
+   :members:
+
 Проверки объяснимости
 ---------------------
 .. automodule:: ml.explain_eval

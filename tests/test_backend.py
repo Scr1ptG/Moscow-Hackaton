@@ -74,6 +74,11 @@ class FakeML:
         self.last_whatif = payload
         return {"before": {"delay_pred": 260.0}, "after": {"delay_pred": 180.0}, "delta_s": -80.0}
 
+    async def segments(self, now, min_obs=2):
+        self._check()
+        return {"now": now, "items": [{"from": [37.85, 55.73], "to": [37.86, 55.73], "from_stop_id": 1, "to_stop_id": 2,
+                                       "mean_loss_s": 75.0, "median_loss_s": 70.0, "n": 3, "tr_ids": [TR], "last_t": now}]}
+
     async def model_info(self):
         return {"kind": "compact"}
 
@@ -156,3 +161,9 @@ def test_websocket_hello(env):
     client, w, ml = env
     with client.websocket_connect("/api/v1/ws") as ws:
         assert ws.receive_json()["type"] == "hello"
+
+
+def test_segments_proxy(env):
+    client, w, ml = env
+    items = client.get("/api/v1/segments").json()["items"]
+    assert items[0]["mean_loss_s"] == 75.0 and "from_address" in items[0]

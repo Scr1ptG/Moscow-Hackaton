@@ -38,6 +38,11 @@
         <div><span class="dot risk-red"></span>■ Критично</div>
         <div><span class="dot risk-unknown"></span>○ Нет прогноза</div>
         <div><span class="dot risk-lost"></span>✕ Нет связи</div>
+        <label class="legend-toggle"><input type="checkbox" id="seg-toggle"> Проблемные участки</label>
+        <div id="seg-legend" class="seg-legend" hidden>
+          <div><span class="line seg-high"></span>теряют 60 с и больше</div>
+          <div><span class="line seg-mid"></span>теряют 30–60 с</div>
+        </div>
       </div>
     </section>
 
@@ -46,9 +51,11 @@
         <button class="tab active" data-tab="alerts" role="tab">Инциденты <span id="alerts-count" class="count">0</span></button>
         <button class="tab" data-tab="card" role="tab">Карточка</button>
         <button class="tab" data-tab="vehicles" role="tab">ТС</button>
+        <button class="tab" data-tab="segments" role="tab">Участки</button>
         <button class="tab" data-tab="metrics" role="tab">Метрики</button>
       </nav>
 
+      <div class="kpis" id="kpis" aria-label="Сводка по парку"></div>
       <div class="tabpane active" id="tab-alerts">
         <p class="hint" id="alerts-empty">Активных инцидентов нет. Запустите реплей дня или подайте поток с эмулятора.</p>
         <ul class="alerts" id="alerts"></ul>
@@ -62,6 +69,15 @@
       <div class="tabpane" id="tab-vehicles">
         <table class="table" id="vehicles-table">
           <thead><tr><th>ТС</th><th>Риск</th><th>Прогноз</th><th>P(&gt;2 мин)</th><th>Связь</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="tabpane" id="tab-segments">
+        <p class="hint">Где ТС сегодня систематически теряют время: медианный прирост отклонения на перегоне
+          по фактическим прибытиям (GPS), не менее 3 проездов. Клик — показать на карте.</p>
+        <table class="table" id="segments-table">
+          <thead><tr><th>Перегон</th><th>Потеря</th><th>Проездов</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>

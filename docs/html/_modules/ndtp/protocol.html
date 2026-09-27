@@ -61,6 +61,9 @@
 <span class="n">NPH_SGC_CONN_REQUEST</span> <span class="o">=</span> <span class="mi">100</span>
 <span class="n">NPH_SND_REALTIME</span> <span class="o">=</span> <span class="mi">101</span>
 
+<span class="c1">#: Максимальный размер кадра (maxPacketSize из handshake эмулятора).</span>
+<span class="n">MAX_FRAME</span> <span class="o">=</span> <span class="mi">65535</span>
+
 <span class="c1">#: Размер полезной нагрузки ячеек по типу (для пропуска неинтересных ячеек).</span>
 <span class="n">CELL_SIZES</span> <span class="o">=</span> <span class="p">{</span><span class="mi">0</span><span class="p">:</span> <span class="mi">26</span><span class="p">,</span> <span class="mi">2</span><span class="p">:</span> <span class="mi">26</span><span class="p">,</span> <span class="mi">8</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">10</span><span class="p">:</span> <span class="mi">37</span><span class="p">,</span> <span class="mi">15</span><span class="p">:</span> <span class="mi">50</span><span class="p">,</span> <span class="mi">16</span><span class="p">:</span> <span class="mi">8</span><span class="p">}</span>
 
@@ -130,6 +133,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">buf</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">()</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">check_crc</span> <span class="o">=</span> <span class="n">check_crc</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">crc_errors</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">bad_headers</span> <span class="o">=</span> <span class="mi">0</span>
 
     <span class="k">def</span><span class="w"> </span><span class="nf">feed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="nb">bytes</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">Frame</span><span class="p">]:</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
@@ -144,6 +148,11 @@
             <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">NPL</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
                 <span class="k">return</span> <span class="n">frames</span>
             <span class="n">sig</span><span class="p">,</span> <span class="n">size</span><span class="p">,</span> <span class="n">_flags</span><span class="p">,</span> <span class="n">crc</span><span class="p">,</span> <span class="n">typ</span><span class="p">,</span> <span class="n">peer</span><span class="p">,</span> <span class="n">_req</span> <span class="o">=</span> <span class="n">NPL</span><span class="o">.</span><span class="n">unpack_from</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="c1"># ложная сигнатура в мусоре: заголовок не похож на NPL -&gt; сдвиг на байт, не ждём «тело»</span>
+            <span class="k">if</span> <span class="n">typ</span> <span class="o">!=</span> <span class="n">NPL_TYPE_NPH</span> <span class="ow">or</span> <span class="ow">not</span> <span class="p">(</span><span class="n">NPH</span><span class="o">.</span><span class="n">size</span> <span class="o">&lt;=</span> <span class="n">size</span> <span class="o">&lt;=</span> <span class="n">MAX_FRAME</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">bad_headers</span> <span class="o">+=</span> <span class="mi">1</span>
+                <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">[:</span><span class="mi">1</span><span class="p">]</span>
+                <span class="k">continue</span>
             <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">)</span> <span class="o">&lt;</span> <span class="n">NPL</span><span class="o">.</span><span class="n">size</span> <span class="o">+</span> <span class="n">size</span><span class="p">:</span>
                 <span class="k">return</span> <span class="n">frames</span>
             <span class="n">payload</span> <span class="o">=</span> <span class="nb">bytes</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buf</span><span class="p">[</span><span class="n">NPL</span><span class="o">.</span><span class="n">size</span> <span class="p">:</span> <span class="n">NPL</span><span class="o">.</span><span class="n">size</span> <span class="o">+</span> <span class="n">size</span><span class="p">])</span>

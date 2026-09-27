@@ -289,6 +289,19 @@
 
 
 
+<div class="viewcode-block" id="segments">
+<a class="viewcode-back" href="../../../service.html#services.ml_service.app.segments">[документация]</a>
+<span class="nd">@app</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"/v1/segments"</span><span class="p">)</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">segments</span><span class="p">(</span><span class="n">now</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">min_obs</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span> <span class="n">top</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Проблемные участки: средняя потеря времени на перегонах по фактическим прибытиям (&lt;= now)."""</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">ml.segments</span><span class="w"> </span><span class="kn">import</span> <span class="n">problem_segments</span>
+
+    <span class="n">on</span> <span class="o">=</span> <span class="n">_online</span><span class="p">()</span>
+    <span class="n">now</span> <span class="o">=</span> <span class="n">now</span> <span class="ow">or</span> <span class="n">on</span><span class="o">.</span><span class="n">last_time</span>
+    <span class="k">return</span> <span class="p">{</span><span class="s2">"now"</span><span class="p">:</span> <span class="n">now</span><span class="p">,</span> <span class="s2">"items"</span><span class="p">:</span> <span class="n">problem_segments</span><span class="p">(</span><span class="n">on</span><span class="o">.</span><span class="n">context</span><span class="p">(</span><span class="n">now</span><span class="p">),</span> <span class="n">now</span><span class="p">,</span> <span class="n">min_obs</span><span class="p">,</span> <span class="n">top</span><span class="p">)}</span></div>
+
+
+
 <div class="viewcode-block" id="predict">
 <a class="viewcode-back" href="../../../service.html#services.ml_service.app.predict">[документация]</a>
 <span class="nd">@app</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">"/v1/predict"</span><span class="p">)</span>

@@ -94,3 +94,40 @@ def behaviour_patterns(f: dict) -> list[str]:
     if (f.get("hist_gain_mean") or 0) > 90:
         p.append("На этом участке ТС сегодня стабильно теряет время")
     return p
+
+
+def recommendations(f: dict, delay: float, cause_code: str | None, p_late: float | None = None) -> list[str]:
+    """Рекомендации диспетчеру по прогнозу и его причине (правила, 0–3 пункта).
+
+    Уровни согласованы со светофором риска: «критично» (опоздание >= 2 мин или
+    P >= 60%) — активные меры; «внимание» (>= 1 мин или P >= 30%) — наблюдение и
+    профилактика; опережение — удержание для выравнивания интервала.
+    """
+    def num(k):
+        v = f.get(k)
+        return None if v is None or (isinstance(v, float) and v != v) else float(v)
+
+    p = p_late or 0.0
+    recs: list[str] = []
+    slack = num("layover_slack_s")
+    if delay >= 120 or p >= 0.6:
+        if slack is not None and slack < 300:
+            recs.append("Запаса на отстой не хватит: подготовить резервное ТС на следующий рейс или сократить отстой на конечной")
+        if cause_code == "traffic" or (num("stop_share_5m") or 0) >= 0.6:
+            recs.append("Проверить обстановку на участке (затор, ДТП): рассмотреть объезд или приоритет на светофорах")
+        if cause_code == "segment_history":
+            recs.append("Участок сегодня систематически «съедает» время: пересмотреть норматив времени хода в расписании")
+        if cause_code in ("current_delay", "position") or not recs:
+            recs.append("Предупредить водителя: сократить стоянки без посадки; при росте отставания — выпуск резервного ТС")
+        recs.append(f"Информировать пассажиров на целевой остановке: ожидаемое опоздание ~{max(1, round(delay / 60))} мин")
+    elif delay >= 60 or p >= 0.3:
+        recs.append(f"Наблюдать: вероятность опоздания более 2 мин — {round(p * 100)}%; при сохранении тренда предупредить водителя")
+        if cause_code == "traffic":
+            recs.append("Проверить обстановку на участке: признаки затора/долгой посадки")
+        elif cause_code == "segment_history":
+            recs.append("На этом участке сегодня уже теряли время — заложить запас на следующих рейсах")
+    elif delay <= -90:
+        recs.append(f"ТС идёт с опережением ~{round(-delay / 60)} мин: удержать на остановке для выравнивания интервала")
+    if cause_code == "telematics" or (num("valid_share_30m") is not None and num("valid_share_30m") < 0.5):
+        recs.append("Нет достоверного GPS: связаться с водителем, проверить бортовой терминал")
+    return recs[:3]

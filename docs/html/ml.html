@@ -641,8 +641,36 @@
 </dd></dl>
 
 </section>
+<section id="module-ml.segments">
+<span id="id6"></span><h2>Проблемные участки<a class="headerlink" href="#module-ml.segments" title="Ссылка на этот заголовок">¶</a></h2>
+<p>Проблемные участки: где ТС сегодня систематически теряют время (по фактическим прибытиям из GPS).</p>
+<p>Для каждого перегона «остановка k -&gt; k+1» внутри рейса считается прирост отклонения
+<code class="docutils literal notranslate"><span class="pre">(arr_{k+1}</span> <span class="pre">-</span> <span class="pre">plan_{k+1})</span> <span class="pre">-</span> <span class="pre">(arr_k</span> <span class="pre">-</span> <span class="pre">plan_k)</span></code> по прибытиям, подтверждённым к моменту
+<code class="docutils literal notranslate"><span class="pre">now</span></code> (то есть без заглядывания в будущее). Перегоны агрегируются по месту остановок
+(один и тот же участок в разных рейсах), результат — средняя потеря времени и число проездов.
+Старт рейса исключается: «прибытие» на первую остановку рейса — шум (ТС стоит на конечной).</p>
+<dl class="py function">
+<dt class="sig sig-object py" id="ml.segments.problem_segments">
+<span class="sig-prename descclassname"><span class="pre">ml.segments.</span></span><span class="sig-name descname"><span class="pre">problem_segments</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">now</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_obs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">top</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ml/segments.html#problem_segments"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#ml.segments.problem_segments" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Список перегонов со средней потерей времени, по убыванию потери.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>ctx</strong> (<a class="reference internal" href="#ml.features.Context" title="ml.features.Context"><em>Context</em></a>)</p></li>
+<li><p><strong>now</strong> (<em>float</em>)</p></li>
+<li><p><strong>min_obs</strong> (<em>int</em>)</p></li>
+<li><p><strong>top</strong> (<em>int</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Тип результата<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[dict]</p>
+</dd>
+</dl>
+</dd></dl>
+
+</section>
 <section id="module-ml.explain_eval">
-<span id="id6"></span><h2>Проверки объяснимости<a class="headerlink" href="#module-ml.explain_eval" title="Ссылка на этот заголовок">¶</a></h2>
+<span id="id7"></span><h2>Проверки объяснимости<a class="headerlink" href="#module-ml.explain_eval" title="Ссылка на этот заголовок">¶</a></h2>
 <p>Оценка объяснимости компактной модели и графики для документации/жюри.</p>
 <p>Проверки (результат — <code class="docutils literal notranslate"><span class="pre">reports/explainability.json</span></code>, графики — <code class="docutils literal notranslate"><span class="pre">reports/figures</span></code>):</p>
 <ol class="arabic simple">
@@ -708,7 +736,7 @@
 
 </section>
 <section id="module-ml.labels">
-<span id="id7"></span><h2>Разметка, дообучение, реестр<a class="headerlink" href="#module-ml.labels" title="Ссылка на этот заголовок">¶</a></h2>
+<span id="id8"></span><h2>Разметка, дообучение, реестр<a class="headerlink" href="#module-ml.labels" title="Ссылка на этот заголовок">¶</a></h2>
 <p>Генерация разметки из сырых данных АСДУ — основа дообучения на новых днях.</p>
 <p>Новые данные не придут с готовыми <code class="docutils literal notranslate"><span class="pre">labels_*.csv</span></code>: придут телеметрия и
 расписание с фактом (<code class="docutils literal notranslate"><span class="pre">time_fact_begin</span></code>). Правила разметки восстановлены из
@@ -873,7 +901,7 @@ artifacts/compact/              копия текущей версии — её 
 
 </section>
 <section id="module-ml.degradation">
-<span id="id8"></span><h2>Надёжность<a class="headerlink" href="#module-ml.degradation" title="Ссылка на этот заголовок">¶</a></h2>
+<span id="id9"></span><h2>Надёжность<a class="headerlink" href="#module-ml.degradation" title="Ссылка на этот заголовок">¶</a></h2>
 <p>Надёжность: качество прогноза при обрыве связи (нет телеметрии последние L минут).</p>
 <p>Оценка честная (leave-one-vehicle-out: модель не видела это ТС).
 Для каждой размеченной точки признаки считаются в момент <code class="docutils literal notranslate"><span class="pre">T</span></code>, но онлайн-контекст
@@ -883,7 +911,7 @@ artifacts/compact/              копия текущей версии — её 
 <p>Запуск: <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">ml.degradation</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">reports/degradation.json</span></code>.</p>
 </section>
 <section id="module-ml.models">
-<span id="id9"></span><h2>Модели и валидация<a class="headerlink" href="#module-ml.models" title="Ссылка на этот заголовок">¶</a></h2>
+<span id="id10"></span><h2>Модели и валидация<a class="headerlink" href="#module-ml.models" title="Ссылка на этот заголовок">¶</a></h2>
 <p>Обучение и оценка моделей (LightGBM / CatBoost), честная кросс-валидация.</p>
 <p>Схема валидации — <strong>leave-one-vehicle-out</strong>: реальное ТС и его синтетические
 копии всегда в одном фолде. Синтетика в train — это сдвинутые по времени копии
@@ -1092,7 +1120,7 @@ artifacts/compact/              копия текущей версии — её 
 
 </section>
 <section id="module-ml.train">
-<span id="id10"></span><h2>Обучение и сабмит<a class="headerlink" href="#module-ml.train" title="Ссылка на этот заголовок">¶</a></h2>
+<span id="id11"></span><h2>Обучение и сабмит<a class="headerlink" href="#module-ml.train" title="Ссылка на этот заголовок">¶</a></h2>
 <p>Обучение финального ансамбля, CV-отчёт и формирование <code class="docutils literal notranslate"><span class="pre">submission.csv</span></code>.</p>
 <p>Запуск:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">python</span> <span class="o">-</span><span class="n">m</span> <span class="n">ml</span><span class="o">.</span><span class="n">train</span> <span class="o">--</span><span class="n">cv</span>          <span class="c1"># leave-one-vehicle-out CV + отчёт в reports/</span>
@@ -1216,7 +1244,7 @@ artifacts/compact/              копия текущей версии — её 
 
 </section>
 <section id="module-ml.predictor">
-<span id="id11"></span><h2>Инференс<a class="headerlink" href="#module-ml.predictor" title="Ссылка на этот заголовок">¶</a></h2>
+<span id="id12"></span><h2>Инференс<a class="headerlink" href="#module-ml.predictor" title="Ссылка на этот заголовок">¶</a></h2>
 <p>Рантайм-инференс: загрузка артефактов и прогноз (офлайн-батч и онлайн-точка).</p>
 <p>Две модели с одинаковым интерфейсом:</p>
 <ul class="simple">
@@ -1422,7 +1450,7 @@ TreeSHAP одной модели, а <code class="docutils literal notranslate">
 
 </section>
 <section id="module-ml.explain">
-<span id="id12"></span><h2>Объяснения<a class="headerlink" href="#module-ml.explain" title="Ссылка на этот заголовок">¶</a></h2>
+<span id="id13"></span><h2>Объяснения<a class="headerlink" href="#module-ml.explain" title="Ссылка на этот заголовок">¶</a></h2>
 <p>Объяснение прогноза: причины/паттерны сбоя для карточки инцидента.</p>
 <p>Вклады признаков считаются LightGBM (<code class="docutils literal notranslate"><span class="pre">pred_contrib=True</span></code> — точные TreeSHAP
 значения) и суммируются по смысловым группам. Группа с наибольшим
@@ -1482,9 +1510,31 @@ TreeSHAP одной модели, а <code class="docutils literal notranslate">
 </dl>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="ml.explain.recommendations">
+<span class="sig-prename descclassname"><span class="pre">ml.explain.</span></span><span class="sig-name descname"><span class="pre">recommendations</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">f</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">delay</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">cause_code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p_late</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/ml/explain.html#recommendations"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#ml.explain.recommendations" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Рекомендации диспетчеру по прогнозу и его причине (правила, 0–3 пункта).</p>
+<p>Уровни согласованы со светофором риска: «критично» (опоздание &gt;= 2 мин или
+P &gt;= 60%) — активные меры; «внимание» (&gt;= 1 мин или P &gt;= 30%) — наблюдение и
+профилактика; опережение — удержание для выравнивания интервала.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>f</strong> (<em>dict</em>)</p></li>
+<li><p><strong>delay</strong> (<em>float</em>)</p></li>
+<li><p><strong>cause_code</strong> (<em>str</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>p_late</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+</ul>
+</dd>
+<dt class="field-even">Тип результата<span class="colon">:</span></dt>
+<dd class="field-even"><p>list[str]</p>
+</dd>
+</dl>
+</dd></dl>
+
 </section>
 <section id="module-ml.online">
-<span id="id13"></span><h2>Онлайн-состояние<a class="headerlink" href="#module-ml.online" title="Ссылка на этот заголовок">¶</a></h2>
+<span id="id14"></span><h2>Онлайн-состояние<a class="headerlink" href="#module-ml.online" title="Ссылка на этот заголовок">¶</a></h2>
 <p>Онлайн-состояние для потоковой телеметрии (NDTP -&gt; прогноз в реальном времени).</p>
 <p><a class="reference internal" href="#ml.online.OnlineState" title="ml.online.OnlineState"><code class="xref py py-class docutils literal notranslate"><span class="pre">OnlineState</span></code></a> накапливает навигационные записи по ТС и по запросу
 собирает тот же <a class="reference internal" href="#ml.features.Context" title="ml.features.Context"><code class="xref py py-class docutils literal notranslate"><span class="pre">ml.features.Context</span></code></a>, что и офлайн-пайплайн, —
@@ -1627,6 +1677,7 @@ train/serving skew; проверяется <code class="docutils literal notrans
 <li class="toctree-l2"><a class="reference internal" href="#module-ml.telemetry">Телеметрия и детектор прибытий</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-ml.features">Признаки</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-ml.compact">Продовая компактная модель</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#module-ml.segments">Проблемные участки</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-ml.explain_eval">Проверки объяснимости</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-ml.labels">Разметка, дообучение, реестр</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#module-ml.degradation">Надёжность</a></li>

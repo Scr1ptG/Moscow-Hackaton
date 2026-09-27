@@ -30,7 +30,7 @@ import numpy as np
 import pandas as pd
 
 from .cache import ART_DIR
-from .explain import FACTOR_GROUPS, behaviour_patterns, group_contributions, top_cause
+from .explain import FACTOR_GROUPS, behaviour_patterns, group_contributions, recommendations, top_cause
 
 MODEL_DIR = ART_DIR / "models"
 
@@ -306,6 +306,8 @@ class CompactPredictor:
         out["explanation"] = texts
         out["top_features"] = tops
         out["patterns"] = [behaviour_patterns(r) for r in records] if records is not None else [[] for _ in causes]
+        recs = records if records is not None else [{} for _ in causes]
+        out["recommendations"] = [recommendations(r, float(d), c, float(pl)) for r, d, c, pl in zip(recs, pred, causes, out["p_late"])]
         return out
 
     def predict_frame(self, X: pd.DataFrame, seq: np.ndarray | None = None, explain: bool = True) -> pd.DataFrame:

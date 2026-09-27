@@ -87,6 +87,9 @@ class MLClient:
     async def predictions(self, now: float) -> dict:
         return await self._call("GET", "/v1/predictions", params={"now": now})
 
+    async def segments(self, now: float, min_obs: int = 2) -> dict:
+        return await self._call("GET", "/v1/segments", params={"now": now, "min_obs": min_obs})
+
     async def whatif(self, payload: dict) -> dict:
         return await self._call("POST", "/v1/whatif", json=payload)
 

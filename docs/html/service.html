@@ -192,6 +192,21 @@
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="services.ml_service.app.segments">
+<span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">segments</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">now</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_obs</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">top</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">50</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#segments"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.segments" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Проблемные участки: средняя потеря времени на перегонах по фактическим прибытиям (&lt;= now).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Параметры<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>now</strong> (<em>float</em><em> | </em><em>None</em>)</p></li>
+<li><p><strong>min_obs</strong> (<em>int</em>)</p></li>
+<li><p><strong>top</strong> (<em>int</em>)</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="services.ml_service.app.predict">
 <span class="sig-prename descclassname"><span class="pre">services.ml_service.app.</span></span><span class="sig-name descname"><span class="pre">predict</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">p</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/services/ml_service/app.html#predict"><span class="viewcode-link"><span class="pre">[исходный</span> <span class="pre">код]</span></span></a><a class="headerlink" href="#services.ml_service.app.predict" title="Ссылка на это определение">¶</a></dt>
 <dd><p>Прогноз задержки для одной прогнозной точки.</p>
@@ -255,6 +270,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.load_schedule"><code class="docutils literal notranslate"><span class="pre">load_schedule()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.ingest"><code class="docutils literal notranslate"><span class="pre">ingest()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.predictions"><code class="docutils literal notranslate"><span class="pre">predictions()</span></code></a></li>
+<li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.segments"><code class="docutils literal notranslate"><span class="pre">segments()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.predict"><code class="docutils literal notranslate"><span class="pre">predict()</span></code></a></li>
 <li class="toctree-l2"><a class="reference internal" href="#services.ml_service.app.whatif"><code class="docutils literal notranslate"><span class="pre">whatif()</span></code></a></li>
 </ul>

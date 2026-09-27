@@ -180,6 +180,71 @@
         }
       }
     },
+    "/v1/segments": {
+      "get": {
+        "summary": "Segments",
+        "description": "Проблемные участки: средняя потеря времени на перегонах по фактическим прибытиям (<= now).",
+        "operationId": "segments_v1_segments_get",
+        "parameters": [
+          {
+            "name": "now",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Now"
+            }
+          },
+          {
+            "name": "min_obs",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 2,
+              "title": "Min Obs"
+            }
+          },
+          {
+            "name": "top",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Top"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/predict": {
       "post": {
         "summary": "Predict",

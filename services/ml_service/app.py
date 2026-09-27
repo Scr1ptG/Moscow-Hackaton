@@ -225,6 +225,16 @@ def predictions(now: Optional[float] = None):
     return {"now": now, "latency_ms": round(dt, 1), "items": items}
 
 
+@app.get("/v1/segments")
+def segments(now: Optional[float] = None, min_obs: int = 2, top: int = 50):
+    """Проблемные участки: средняя потеря времени на перегонах по фактическим прибытиям (<= now)."""
+    from ml.segments import problem_segments
+
+    on = _online()
+    now = now or on.last_time
+    return {"now": now, "items": problem_segments(on.context(now), now, min_obs, top)}
+
+
 @app.post("/v1/predict")
 def predict(p: PointIn):
     """Прогноз задержки для одной прогнозной точки."""

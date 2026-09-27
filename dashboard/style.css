@@ -107,3 +107,15 @@ h3 { font-size: 13px; margin: 14px 0 6px; color: var(--ink); }
   .mapwrap { height: 55vh; }
   .panel { width: 100%; max-width: none; border-left: 0; border-top: 1px solid var(--border); }
 }
+
+.legend-toggle { display: block; margin-top: 6px; color: var(--ink); cursor: pointer; }
+.seg-legend { margin-top: 2px; }
+.line { display: inline-block; width: 18px; height: 0; border-top: 4px solid; vertical-align: 3px; margin-right: 6px; }
+.seg-high { border-color: var(--critical); } .seg-mid { border-color: var(--warning); }
+.kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 10px 14px 0; }
+.kpi { border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px; text-align: center; }
+.kpi .v { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kpi .l { font-size: 11px; color: var(--ink2); white-space: nowrap; }
+.recs { margin: 4px 0; padding-left: 18px; }
+.recs li { margin: 3px 0; }
+.tab { font-size: 13px; padding: 10px 4px; }

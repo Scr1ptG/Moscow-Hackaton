@@ -49,6 +49,12 @@ CRC-16/Modbus считается по NPH + телу и кладётся в NPL 
 <li><p>собирать кадры (handshake и realtime) — для реплеера исторических данных и тестов.</p></li>
 </ul>
 <dl class="py data">
+<dt class="sig sig-object py" id="ndtp.protocol.MAX_FRAME">
+<span class="sig-prename descclassname"><span class="pre">ndtp.protocol.</span></span><span class="sig-name descname"><span class="pre">MAX_FRAME</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">65535</span></span><a class="headerlink" href="#ndtp.protocol.MAX_FRAME" title="Ссылка на это определение">¶</a></dt>
+<dd><p>Максимальный размер кадра (maxPacketSize из handshake эмулятора).</p>
+</dd></dl>
+
+<dl class="py data">
 <dt class="sig sig-object py" id="ndtp.protocol.CELL_SIZES">
 <span class="sig-prename descclassname"><span class="pre">ndtp.protocol.</span></span><span class="sig-name descname"><span class="pre">CELL_SIZES</span></span><span class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">{0:</span> <span class="pre">26,</span> <span class="pre">2:</span> <span class="pre">26,</span> <span class="pre">8:</span> <span class="pre">6,</span> <span class="pre">10:</span> <span class="pre">37,</span> <span class="pre">15:</span> <span class="pre">50,</span> <span class="pre">16:</span> <span class="pre">8}</span></span><a class="headerlink" href="#ndtp.protocol.CELL_SIZES" title="Ссылка на это определение">¶</a></dt>
 <dd><p>Размер полезной нагрузки ячеек по типу (для пропуска неинтересных ячеек).</p>

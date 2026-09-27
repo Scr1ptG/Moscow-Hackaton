@@ -12,7 +12,7 @@ const RISK = {
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const riskColor = (r) => ({ green: css("--good"), yellow: css("--warning"), red: css("--critical") }[r] || css("--muted"));
 
-const state = { vehicles: new Map(), markers: new Map(), alerts: [], groups: {}, selected: null, overlay: null, ws: null };
+const state = { vehicles: new Map(), markers: new Map(), routes: new Map(), alerts: [], groups: {}, selected: null, overlay: null, ws: null, segLayer: null };
 
 // ------------------------------------------------------------------ утилиты
 async function api(path, opts = {}) {
@@ -49,8 +49,9 @@ async function loadRoutes() {
   for (const r of routes) {
     const latlngs = r.line.map(([lon, lat]) => [lat, lon]);
     pts.push(...latlngs);
-    L.polyline(latlngs, { color: css("--muted"), weight: 2, opacity: 0.75 })
+    const line = L.polyline(latlngs, { color: css("--muted"), weight: 2, opacity: 0.75 })
       .bindTooltip(`Маршрут ТС ${r.tr_id}`, { sticky: true }).addTo(layer);
+    state.routes.set(r.tr_id, line);
   }
   if (pts.length) {
     state.routeBounds = L.latLngBounds(pts).pad(0.05);
@@ -104,9 +105,62 @@ function drawVehicles(list) {
     }
     m.bindTooltip(vehicleTooltip(v));
     if (v.risk === "red") m.bringToFront();
+    const route = state.routes.get(v.tr_id); // цвет риска — на всём маршруте ТС
+    if (route) {
+      const hot = !lost && (v.risk === "red" || v.risk === "yellow");
+      route.setStyle({ color: hot ? riskColor(v.risk) : css("--muted"), weight: hot ? 4 : 2, opacity: hot ? 0.9 : 0.6 });
+      if (hot) route.bringToFront();
+    }
   }
   renderVehiclesTable();
+  renderKpis();
 }
+
+function renderKpis() {
+  const vs = [...state.vehicles.values()].filter((v) => v.scheduled);
+  const n = (f) => vs.filter(f).length;
+  const tiles = [
+    ["ТС на линии", vs.length],
+    ["● норма", n((v) => v.risk === "green")],
+    ["▲ внимание", n((v) => v.risk === "yellow")],
+    ["■ критично", n((v) => v.risk === "red")],
+    ["✕ нет связи", n((v) => v.connection === "lost")],
+  ];
+  document.getElementById("kpis").innerHTML = tiles.map(([l, v]) => `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+}
+
+// ------------------------------------------------------------------ проблемные участки
+async function refreshSegments() {
+  let res;
+  try { res = await api("/segments?min_obs=3"); } catch (e) { return; }
+  const items = res.items || [];
+  if (state.segLayer) state.segLayer.remove();
+  state.segLayer = L.layerGroup();
+  for (const s of items) {
+    const loss = s.median_loss_s;
+    if (loss < 30) continue;
+    L.polyline([[s.from[1], s.from[0]], [s.to[1], s.to[0]]], { color: loss >= 60 ? css("--critical") : css("--warning"), weight: 6, opacity: 0.85 })
+      .bindTooltip(`Проблемный участок: ${esc(s.from_address || "")} → ${esc(s.to_address || "")}<br>теряют в среднем ${fmtDelay(s.mean_loss_s)} (медиана ${fmtDelay(loss)}) · ${s.n} проездов`, { sticky: true })
+      .addTo(state.segLayer);
+  }
+  if (document.getElementById("seg-toggle").checked) state.segLayer.addTo(map);
+  const rows = items.slice(0, 15).map((s, i) => `
+    <tr class="click" data-i="${i}"><td>${esc(s.from_address || s.from_stop_id)} → ${esc(s.to_address || s.to_stop_id)}</td>
+    <td>${fmtDelay(s.median_loss_s)}</td><td>${s.n}</td></tr>`).join("");
+  document.querySelector("#segments-table tbody").innerHTML = rows || `<tr><td colspan="3" class="muted">Пока мало проездов — участки появятся по ходу дня</td></tr>`;
+  document.querySelectorAll("#segments-table tr.click").forEach((tr) => tr.addEventListener("click", () => {
+    const s = items[+tr.dataset.i];
+    document.getElementById("seg-toggle").checked = true;
+    document.getElementById("seg-legend").hidden = false;
+    state.segLayer.addTo(map);
+    map.fitBounds(L.latLngBounds([[s.from[1], s.from[0]], [s.to[1], s.to[0]]]).pad(1.5), { maxZoom: 16 });
+  }));
+}
+document.getElementById("seg-toggle").addEventListener("change", (e) => {
+  document.getElementById("seg-legend").hidden = !e.target.checked;
+  if (!state.segLayer) { refreshSegments(); return; }
+  if (e.target.checked) state.segLayer.addTo(map); else state.segLayer.remove();
+});
 
 // ------------------------------------------------------------------ инциденты
 function renderAlerts() {
@@ -165,6 +219,7 @@ function predictionBlock(p, v) {
       <dt>Прогноз построен</dt><dd>${fmtTime(p.T)}${p.stale ? " · <b>устарел (ML недоступен)</b>" : ""}</dd>
     </dl>
     <div class="explain">${esc(p.explanation || "")}</div>
+    ${(p.recommendations || []).length ? `<h3>Рекомендации диспетчеру</h3><ul class="recs">${p.recommendations.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
     <h3>Почему такой прогноз (точное разложение)</h3>
     ${contribChart(p.contributions || Object.fromEntries(Object.entries(p).filter(([k]) => k.startsWith("contrib_")).map(([k, x]) => [k.slice(8), x])), p.base_value, p.rule_contrib)}
     ${top ? `<h3>Главные признаки</h3><table class="table"><thead><tr><th>Признак</th><th>Значение</th><th>Вклад</th></tr></thead><tbody>${top}</tbody></table>` : ""}
@@ -215,7 +270,8 @@ async function selectAlert(id) {
     <div class="meta muted">Открыт ${fmtTime(a.opened_at)} · пик прогноза ${fmtDelay(a.peak_delay_s)} · статус: ${a.status === "acknowledged" ? "принят" : a.status === "resolved" ? "закрыт" : "новый"}</div>
     <p><b>Участок:</b> до остановки «${esc(a.target?.address || "—")}»</p>
     ${a.status === "open" ? `<button class="btn" id="btn-ack">Принять в работу</button>` : ""}
-    ${predictionBlock(p)}`;
+    ${predictionBlock(p)}
+    ${historyChart((a.history || []).map((h) => ({ t: h.t, delay_pred: h.delay_pred, risk: h.risk })))}`;
   document.getElementById("card-empty").style.display = "none";
   const ack = document.getElementById("btn-ack");
   if (ack) ack.addEventListener("click", async () => { await api(`/alerts/${id}/ack`, { method: "POST" }); await refreshAlerts(); selectAlert(id); });
@@ -233,12 +289,37 @@ async function selectVehicle(trId) {
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h2 style="margin:0;font-size:16px">ТС ${v.tr_id}</h2>${badge(v.risk)}</div>
     <div class="meta muted">Связь: ${v.connection === "lost" ? "✕ потеряна" : "есть"} · последний пакет ${fmtTime(v.last_t)} · скорость ${v.speed ?? "—"} км/ч</div>
-    ${predictionBlock(v.prediction, v)}`;
+    ${predictionBlock(v.prediction, v)}
+    ${historyChart(v.history)}`;
   document.getElementById("card-empty").style.display = "none";
   if (v.prediction) bindWhatIf(v.tr_id);
   if (state.overlay) state.overlay.remove();
   if (v.lat) map.setView([v.lat, v.lon], 14);
   switchTab("card");
+}
+
+function historyChart(hist) {
+  const pts = (hist || []).filter((h) => h.delay_pred !== null && h.delay_pred !== undefined).slice(-60);
+  if (pts.length < 2) return "";
+  const W = 400, H = 120, L = 40, Rm = 8, T = 10, B = 20;
+  const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+  const vals = pts.map((p) => p.delay_pred);
+  const lo = Math.min(0, ...vals), hi = Math.max(60, ...vals);
+  const x = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - Rm);
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  const path = pts.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)},${y(p.delay_pred).toFixed(1)}`).join(" ");
+  const ticks = [lo, 0, hi].filter((v, i, a) => a.indexOf(v) === i);
+  const dots = pts.map((p) => `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.delay_pred).toFixed(1)}" r="4" fill="${riskColor(p.risk)}"
+      stroke="${css("--surface")}" stroke-width="2"><title>${fmtTime(p.t)}: прогноз ${fmtDelay(p.delay_pred)} (${(RISK[p.risk] || RISK.unknown).text})</title></circle>`).join("");
+  return `<h3>Как менялся прогноз (опоздание через 10–15 мин)</h3>
+    <svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="История прогноза отклонения">
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - Rm}" y1="${y(v)}" y2="${y(v)}" stroke="${v === 0 ? css("--base") : css("--grid")}" stroke-width="1"/>
+        <text x="${L - 6}" y="${y(v) + 4}" text-anchor="end" font-size="10" fill="${css("--muted")}">${fmtDelay(v)}</text>`).join("")}
+      <path d="${path}" fill="none" stroke="${css("--accent")}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+      ${dots}
+      <text x="${L}" y="${H - 4}" font-size="10" fill="${css("--muted")}">${fmtTime(t0)}</text>
+      <text x="${W - Rm}" y="${H - 4}" font-size="10" text-anchor="end" fill="${css("--muted")}">${fmtTime(t1)}</text>
+    </svg>`;
 }
 
 // ------------------------------------------------------------------ таблица ТС и метрики
@@ -320,6 +401,7 @@ function switchTab(name) {
   document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".tabpane").forEach((p) => p.classList.toggle("active", p.id === "tab-" + name));
   if (name === "metrics") refreshMetrics().catch(() => {});
+  if (name === "segments") refreshSegments();
 }
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => switchTab(t.dataset.tab)));
 
@@ -339,4 +421,7 @@ document.getElementById("btn-replay").addEventListener("click", async (ev) => {
   connectWS();
   setInterval(poll, 3000);
   setInterval(() => { if (document.getElementById("tab-metrics").classList.contains("active")) refreshMetrics().catch(() => {}); }, 5000);
+  setInterval(() => {
+    if (document.getElementById("seg-toggle").checked || document.getElementById("tab-segments").classList.contains("active")) refreshSegments();
+  }, 15000);
 })();

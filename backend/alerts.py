@@ -26,7 +26,7 @@ def alert_card(a: Alert) -> dict:
     """Карточка инцидента для диспетчера: прогноз, интервал, причина, объяснение, участок."""
     p = a.prediction
     keep = ("delay_pred", "q10", "q90", "p_late", "expected_abs_error", "risk", "cause", "cause_code", "explanation",
-            "top_features", "patterns", "base_value", "rule_contrib", "target_stop_id", "target_plan", "cur_dev_s", "T")
+            "top_features", "patterns", "recommendations", "base_value", "rule_contrib", "target_stop_id", "target_plan", "cur_dev_s", "T")
     return {
         **alert_summary(a),
         "prediction": {k: p.get(k) for k in keep},

@@ -29,6 +29,11 @@ class Schedule:
     def load(cls, data_dir: str, split: str) -> "Schedule":
         d = Path(data_dir) / split
         path = d / ("schedule_plan.csv" if (d / "schedule_plan.csv").exists() else "schedule.csv")
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Не найдено расписание {path}. Укажите путь к датасету хакатона: DATA_DIR в .env (Docker) "
+                f"или MT_DATA_DIR (локально) — папка, где лежат train/ test/ validate/."
+            )
         df = pd.read_csv(path)
         xy = df["geom"].str.extract(r"POINT \(([-\d.eE]+) ([-\d.eE]+)\)").astype(float)
         stops = pd.DataFrame(

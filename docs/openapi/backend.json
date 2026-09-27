@@ -291,6 +291,44 @@
         }
       }
     },
+    "/api/v1/segments": {
+      "get": {
+        "summary": "Проблемные участки: где ТС сегодня теряют время (по фактическим прибытиям)",
+        "operationId": "segments_api_v1_segments_get",
+        "parameters": [
+          {
+            "name": "min_obs",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 2,
+              "title": "Min Obs"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/metrics": {
       "get": {
         "summary": "Качество онлайн (на реплее дня с фактом) и производительность",
