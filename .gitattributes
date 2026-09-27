@@ -1,4 +1,6 @@
 * text=auto
+# модели LightGBM хранят байтовые размеры деревьев (tree_sizes): CRLF ломает загрузку -> только LF, без конвертации
+artifacts/** binary
 Dockerfile text eol=lf
 *.conf text eol=lf
 *.sh text eol=lf

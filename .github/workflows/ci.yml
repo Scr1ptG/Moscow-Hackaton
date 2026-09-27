@@ -10,12 +10,22 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install -r requirements-ml.txt pytest sphinx
-      - name: NDTP codec tests
-        run: python -m pytest tests/test_ndtp.py -q
+      - name: NDTP codec + model loading tests
+        run: python -m pytest tests/test_ndtp.py tests/test_models_load.py -q
       - name: import all modules
         run: python -c "import ml.compact, ml.predictor, ml.online, ml.retrain, ml.segments, backend.main, services.ml_service.app, ndtp.server"
       - name: Sphinx
         run: python -m sphinx -q -b html docs /tmp/html
+
+  windows:
+    name: Windows (как у жюри без Docker) — загрузка моделей и тесты
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -r requirements-ml.txt pytest
+      - run: python -m pytest tests/test_ndtp.py tests/test_models_load.py -q
 
   docker-smoke:
     name: Вся система в Docker (синтетический датасет)
