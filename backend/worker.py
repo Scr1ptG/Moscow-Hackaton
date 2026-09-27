@@ -67,6 +67,20 @@ class Worker:
         s.received += n
         return n
 
+    async def reset(self):
+        """Сброс состояния перед новым реплеем: backend заново, ML пересоздаёт онлайн-состояние.
+
+        Без сброса повторный запуск реплея «замораживал» прогнозы: время нового потока
+        меньше уже обработанного, и цикл ждал, пока поток его догонит.
+        """
+        from .state import Store
+
+        self.store = Store()
+        self.ml_synced_t = 0.0
+        await self.ml.load_schedule(self.cfg.schedule_split, self.schedule.unit_to_tr)
+        self.store.ml_schedule_loaded = True
+        await self._emit({"type": "reset"})
+
     # ------------------------------------------------------------ циклы
     def start(self):
         self._tasks = [asyncio.create_task(c()) for c in (self._schedule_loop, self._forward_loop, self._predict_loop)]

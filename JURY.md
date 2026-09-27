@@ -57,6 +57,11 @@ curl -X POST http://localhost:8000/api/v1/admin/emulator -H "Content-Type: appli
 Факт прибытия из файла используется **только** для отображения метрик качества на реплее прошедшего
 дня и никогда не передаётся в модель.
 
+Готовые ссылки для демонстрации: `?open=alert` — сразу открыть самый критичный инцидент,
+`?layers=segments` — включить слой проблемных участков, `?tab=metrics` — вкладка метрик,
+`?theme=light|dark` — тема (например, http://localhost:8080/?layers=segments&open=alert).
+Скриншоты: `docs/img/overview.jpg`, `incident.jpg`, `segments.jpg`, `metrics.jpg`.
+
 ## 4. Документация и отчёты
 
 - Код (Sphinx, HTML): `docs/html/index.html`; OpenAPI: `docs/openapi/backend.json`, `docs/openapi/ml-service.json`.

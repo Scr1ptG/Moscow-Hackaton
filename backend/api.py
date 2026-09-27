@@ -226,12 +226,16 @@ async def reload_model(request: Request):
         raise HTTPException(503, str(e))
 
 
-@router.post("/admin/replay", summary="Запустить реплей исторического дня в NDTP (демо)")
+@router.post("/admin/replay", summary="Запустить (перезапустить) реплей исторического дня в NDTP (демо)")
 async def replay(request: Request, body: ReplayIn):
     cfg = request.app.state.cfg
     old = getattr(request.app.state, "replay_proc", None)
     if old is not None and old.poll() is None:
         old.terminate()
+    try:  # новый прогон — с чистого состояния, иначе прогнозы ждут, пока поток «догонит» старый
+        await _w(request).reset()
+    except MLUnavailable as e:
+        raise HTTPException(503, f"ML-сервис недоступен: {e}")
     cmd = [sys.executable, "-m", "ndtp.replay", "--split", body.split, "--host", cfg.ndtp_host,
            "--port", str(cfg.ndtp_port), "--speed", str(body.speed)]
     if body.start:
@@ -240,6 +244,21 @@ async def replay(request: Request, body: ReplayIn):
         cmd += ["--end", body.end]
     request.app.state.replay_proc = subprocess.Popen(cmd, cwd=ROOT)
     return {"started": True, "pid": request.app.state.replay_proc.pid, "cmd": " ".join(cmd[1:])}
+
+
+@router.post("/admin/replay/stop", summary="Остановить реплей")
+async def replay_stop(request: Request):
+    p = getattr(request.app.state, "replay_proc", None)
+    running = p is not None and p.poll() is None
+    if running:
+        p.terminate()
+    return {"stopped": running}
+
+
+@router.get("/admin/replay", summary="Статус реплея")
+async def replay_status(request: Request):
+    p = getattr(request.app.state, "replay_proc", None)
+    return {"running": p is not None and p.poll() is None}
 
 
 @router.post("/admin/emulator", summary="Настроить эмулятор NDTP (проксирует POST /api/config)")

@@ -167,3 +167,17 @@ def test_segments_proxy(env):
     client, w, ml = env
     items = client.get("/api/v1/segments").json()["items"]
     assert items[0]["mean_loss_s"] == 75.0 and "from_address" in items[0]
+
+
+def test_reset_clears_state_and_reloads_ml(env):
+    client, w, ml = env
+    client.post("/api/v1/telemetry", json=_records())
+    client.portal.call(w.forward_once)
+    client.portal.call(w.predict_once)
+    assert client.get("/api/v1/alerts").json()
+    client.portal.call(w.reset)
+    h = client.get("/api/v1/health").json()
+    assert h["received"] == 0 and h["cycles"] == 0 and h["open_alerts"] == 0 and h["ml"]["schedule_loaded"]
+    client.post("/api/v1/telemetry", json=_records())  # тот же отрезок времени заново — прогнозы снова идут
+    client.portal.call(w.forward_once)
+    assert client.portal.call(w.predict_once) and client.get("/api/v1/health").json()["cycles"] == 1

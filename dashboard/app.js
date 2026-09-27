@@ -268,7 +268,7 @@ async function selectAlert(id) {
     <div class="row" style="display:flex;justify-content:space-between;align-items:center">
       <h2 style="margin:0;font-size:16px">Инцидент · ТС ${a.tr_id}</h2>${badge(a.severity)}</div>
     <div class="meta muted">Открыт ${fmtTime(a.opened_at)} · пик прогноза ${fmtDelay(a.peak_delay_s)} · статус: ${a.status === "acknowledged" ? "принят" : a.status === "resolved" ? "закрыт" : "новый"}</div>
-    <p><b>Участок:</b> до остановки «${esc(a.target?.address || "—")}»</p>
+    <p><b>Участок:</b> до остановки «${esc(a.target?.address || (a.target ? "№" + a.target.stop_id : "—"))}»</p>
     ${a.status === "open" ? `<button class="btn" id="btn-ack">Принять в работу</button>` : ""}
     ${predictionBlock(p)}
     ${historyChart((a.history || []).map((h) => ({ t: h.t, delay_pred: h.delay_pred, risk: h.risk })))}`;
@@ -381,6 +381,7 @@ function connectWS() {
     const e = JSON.parse(ev.data);
     if (e.type === "cycle" || e.type === "hello") drawVehicles(e.vehicles || []);
     if (e.type.startsWith("alert_")) refreshAlerts();
+    if (e.type === "reset") resetView();
   };
   state.ws.onclose = () => setTimeout(connectWS, 3000);
 }
@@ -405,20 +406,62 @@ function switchTab(name) {
 }
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => switchTab(t.dataset.tab)));
 
+function resetView() {
+  for (const m of state.markers.values()) m.remove();
+  state.markers.clear();
+  state.vehicles.clear();
+  state.alerts = [];
+  if (state.overlay) { state.overlay.remove(); state.overlay = null; }
+  for (const r of state.routes.values()) r.setStyle({ color: css("--muted"), weight: 2, opacity: 0.6 });
+  renderAlerts();
+  renderVehiclesTable();
+  renderKpis();
+  document.getElementById("card").innerHTML = "";
+  document.getElementById("card-empty").style.display = "block";
+}
+
+async function syncReplayButton() {
+  try {
+    const s = await api("/admin/replay");
+    document.getElementById("btn-replay").textContent = s.running ? "↻ Перезапустить" : "▶ Запустить";
+  } catch (e) { /* backend недоступен */ }
+}
+
 document.getElementById("btn-replay").addEventListener("click", async (ev) => {
   const btn = ev.currentTarget;
   btn.disabled = true;
   try {
     await api("/admin/replay", { method: "POST", body: JSON.stringify({ split: "test", speed: +document.getElementById("replay-speed").value }) });
-    btn.textContent = "▶ Реплей идёт";
-  } catch (e) { alert("Не удалось запустить реплей: " + e.message); btn.disabled = false; }
+    resetView();
+    btn.textContent = "↻ Перезапустить";
+  } catch (e) { alert("Не удалось запустить реплей: " + e.message); }
+  btn.disabled = false;
 });
+document.getElementById("btn-stop").addEventListener("click", async () => {
+  await api("/admin/replay/stop", { method: "POST" }).catch(() => {});
+  syncReplayButton();
+});
+
+// параметры ссылки для демо: ?theme=light|dark&layers=segments&open=alert&tab=metrics
+const Q = new URLSearchParams(location.search);
+if (Q.get("theme")) document.documentElement.dataset.theme = Q.get("theme");
 
 (async function init() {
   await ensureGroups();
   await loadRoutes().catch(() => {});
   await poll();
+  syncReplayButton();
   connectWS();
+  if (Q.get("layers") === "segments") {
+    const t = document.getElementById("seg-toggle");
+    t.checked = true;
+    t.dispatchEvent(new Event("change"));
+  }
+  if (Q.get("tab")) switchTab(Q.get("tab"));
+  if (Q.get("open") === "alert" && state.alerts.length) {
+    const top = state.alerts.find((a) => a.severity === "red") || state.alerts[0];
+    selectAlert(top.id);
+  }
   setInterval(poll, 3000);
   setInterval(() => { if (document.getElementById("tab-metrics").classList.contains("active")) refreshMetrics().catch(() => {}); }, 5000);
   setInterval(() => {

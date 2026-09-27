@@ -18,7 +18,8 @@ def alert_summary(a: Alert) -> dict:
         "id": a.id, "tr_id": a.tr_id, "status": a.status, "severity": a.severity,
         "opened_at": a.opened_at, "updated_at": a.updated_at, "resolved_at": a.resolved_at,
         "delay_pred": p.get("delay_pred"), "p_late": p.get("p_late"), "cause": p.get("cause"),
-        "target_address": (a.target or {}).get("address"), "peak_delay_s": a.peak_delay_s,
+        "target_address": (a.target or {}).get("address") or (f"остановка №{a.target['stop_id']}" if a.target else None),
+        "peak_delay_s": a.peak_delay_s,
     }
 
 
